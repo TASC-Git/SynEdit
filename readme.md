@@ -1,6 +1,6 @@
 # TurboPack SynEdit
 
-Forked Reason
+Forked Reason:
 SynEditTextBuffer has many features above and beyond TStrings that are private and moving to protected allows descendant access.
 Primary function is to hook a virtual TextBuffer 
 
