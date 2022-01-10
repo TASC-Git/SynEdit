@@ -112,17 +112,19 @@ type
     FOnInserted: TStringListChangeEvent;
     FOnPut: TStringListPutEvent;
     FOnInfoLoss: TSynInfoLossEvent;
-    function ExpandString(Index: Integer): string;
-    function GetExpandedString(Index: Integer): string;
-    function GetExpandedStringLength(Index: Integer): Integer;
-    function GetLengthOfLongestLine: Integer;
-    function GetRange(Index: Integer): TSynEditRange;
     procedure Grow;
     procedure InsertItem(Index: Integer; const S: string);
     procedure PutRange(Index: Integer; ARange: TSynEditRange);
     function GetChangeFlags(Index: Integer): TSynLineChangeFlags;
     procedure SetChangeFlags(Index: Integer; const Value: TSynLineChangeFlags);
   protected
+    // Changed to allow hooked string list visibility
+    function ExpandString(Index: Integer): string; virtual;
+    function GetExpandedString(Index: Integer): string; virtual;
+    function GetExpandedStringLength(Index: Integer): Integer; virtual;
+    function GetLengthOfLongestLine: Integer; virtual;
+    function GetRange(Index: Integer): TSynEditRange;
+
     // TStrings overriden protected methods
     function Get(Index: Integer): string; override;
     function GetCapacity: Integer; override;

@@ -5,7 +5,7 @@
         <Config Condition="'$(Config)'==''">Release</Config>
         <FrameworkType>VCL</FrameworkType>
         <MainSource>SynEditDR.dpk</MainSource>
-        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+        <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <ProjectGuid>{AC917C2B-5870-48AD-981D-668AD3E4A533}</ProjectGuid>
         <ProjectVersion>19.3</ProjectVersion>
         <TargetedPlatforms>3</TargetedPlatforms>
@@ -238,6 +238,7 @@
         <DCCReference Include="..\..\..\Source\SynTextDrawer.pas"/>
         <DCCReference Include="..\..\..\Source\SynUnicode.pas"/>
         <DCCReference Include="..\..\..\Source\SynURIOpener.pas"/>
+        <DCCReference Include="..\..\..\Source\SynEditUndo.pas"/>
         <DCCReference Include="..\..\..\Source\SynUsp10.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -298,7 +299,6 @@
                 <Platform value="Android">False</Platform>
                 <Platform value="Android64">False</Platform>
                 <Platform value="iOSDevice64">False</Platform>
-                <Platform value="Linux64">False</Platform>
                 <Platform value="OSX64">False</Platform>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">True</Platform>
