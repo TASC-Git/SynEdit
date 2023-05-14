@@ -58,27 +58,13 @@ type
   PIntArray = ^TIntArray;
   TIntArray = array [0 .. MaxIntArraySize - 1] of Integer;
 
+{ Similar to System.Math.EnsureRange but ma can be less than mi }
 function MinMax(x, mi, ma: Integer): Integer;
 procedure SwapInt(var l, r: Integer);
 
-procedure InternalFillRect(dc: HDC; const rcPaint: TRect);
-
-// Converting tabs to spaces: To use the function several times it's better
-// to use a function pointer that is set to the fastest conversion function.
-type
-  TConvertTabsProc = function(const Line: string; TabWidth: Integer): string;
-
-function GetBestConvertTabsProc(TabWidth: Integer): TConvertTabsProc;
-// This is the slowest conversion function which can handle TabWidth <> 2^n.
-function ConvertTabs(const Line: string; TabWidth: Integer): string;
-
-type
-  TConvertTabsProcEx = function(const Line: string; TabWidth: Integer;
-    var HasTabs: Boolean): string;
-
-function GetBestConvertTabsProcEx(TabWidth: Integer): TConvertTabsProcEx;
-// This is the slowest conversion function which can handle TabWidth <> 2^n.
-function ConvertTabsEx(const Line: string; TabWidth: Integer;
+// Expand tabs to spaces
+function ExpandTabs(const Line: string; TabWidth: Integer): string;
+function ExpandTabsEx(const Line: string; TabWidth: Integer;
   var HasTabs: Boolean): string;
 
 function GetExpandedLength(const aStr: string; aTabWidth: Integer): Integer;
@@ -118,18 +104,29 @@ function EnumHighlighterAttris(Highlighter: TSynCustomHighlighter;
   SkipDuplicates: Boolean; HighlighterAttriProc: THighlighterAttriProc;
   Params: array of Pointer): Boolean;
 
+type
+  // Procedural type for adding keyword entries when enumerating keyword
+  // lists using the EnumerateKeywords procedure below.
+  TEnumerateKeywordEvent = procedure(AKeyword: string; AKind: integer)
+    of object;
+
+  //  This procedure will call AKeywordProc for all keywords in KeywordList. A
+  //  keyword is considered any number of successive chars that are contained in
+  //  Identifiers, with chars not contained in Identifiers before and after them.
+  procedure EnumerateKeywords(AKind: integer; KeywordList: string;
+    IsIdentChar: TCategoryMethod; AKeywordProc: TEnumerateKeywordEvent);
+
 {$IFDEF SYN_HEREDOC}
 // Calculates Frame Check Sequence (FCS) 16-bit Checksum (as defined in RFC 1171)
 function CalcFCS(const ABuf; ABufSize: Cardinal): Word;
 {$ENDIF}
-procedure SynDrawGradient(const ACanvas: TCanvas;
-  const AStartColor, AEndColor: TColor; ASteps: Integer; const ARect: TRect;
-  const AHorizontal: Boolean);
-
 function DeleteTypePrefixAndSynSuffix(s: string): string;
+function CeilOfIntDiv(Dividend, Divisor: Cardinal): Integer;
 
 // In Windows Vista or later use the Consolas font
 function DefaultFontName: string;
+
+function GetCorrectFontWeight(Font: TFont): Integer;
 
 {$IF CompilerVersion <= 32}
 function GrowCollection(OldCapacity, NewCount: Integer): Integer;
@@ -138,8 +135,12 @@ function GrowCollection(OldCapacity, NewCount: Integer): Integer;
 implementation
 
 uses
+  System.UITypes,
   System.SysUtils,
-  SynHighlighterMulti;
+  SynHighlighterMulti,
+  Winapi.D2D1,
+  Vcl.Forms,
+  SynDWrite;
 
 function MinMax(x, mi, ma: Integer): Integer;
 begin
@@ -154,11 +155,6 @@ begin
   tmp := r;
   r := l;
   l := tmp;
-end;
-
-procedure InternalFillRect(dc: HDC; const rcPaint: TRect);
-begin
-  ExtTextOut(dc, 0, 0, ETO_OPAQUE, @rcPaint, nil, 0, nil);
 end;
 
 // Please don't change this function; no stack frame and efficient register use.
@@ -180,112 +176,7 @@ begin
     Result := False;
 end;
 
-function ConvertTabs1Ex(const Line: string; TabWidth: Integer;
-  var HasTabs: Boolean): string;
-var
-  pDest: PWideChar;
-  nBeforeTab: Integer;
-begin
-  Result := Line; // increment reference count only
-  if GetHasTabs(Pointer(Line), nBeforeTab) then
-  begin
-    HasTabs := True;
-    pDest := @Result[nBeforeTab + 1]; // this will make a copy of Line
-    // We have at least one tab in the string, and the tab width is 1.
-    // pDest points to the first tab char. We overwrite all tabs with spaces.
-    repeat
-      if (pDest^ = #9) then
-        pDest^ := ' ';
-      Inc(pDest);
-    until (pDest^ = #0);
-  end
-  else
-    HasTabs := False;
-end;
-
-function ConvertTabs1(const Line: string; TabWidth: Integer): string;
-var
-  HasTabs: Boolean;
-begin
-  Result := ConvertTabs1Ex(Line, TabWidth, HasTabs);
-end;
-
-function ConvertTabs2nEx(const Line: string; TabWidth: Integer;
-  var HasTabs: Boolean): string;
-var
-  i, DestLen, TabCount, TabMask: Integer;
-  pSrc, pDest: PWideChar;
-begin
-  Result := Line; // increment reference count only
-  if GetHasTabs(Pointer(Line), DestLen) then
-  begin
-    HasTabs := True;
-    pSrc := @Line[1 + DestLen];
-    // We have at least one tab in the string, and the tab width equals 2^n.
-    // pSrc points to the first tab char in Line. We get the number of tabs
-    // and the length of the expanded string now.
-    TabCount := 0;
-    TabMask := (TabWidth - 1) xor $7FFFFFFF;
-    repeat
-      if pSrc^ = #9 then
-      begin
-        DestLen := (DestLen + TabWidth) and TabMask;
-        Inc(TabCount);
-      end
-      else
-        Inc(DestLen);
-      Inc(pSrc);
-    until (pSrc^ = #0);
-    // Set the length of the expanded string.
-    SetLength(Result, DestLen);
-    DestLen := 0;
-    pSrc := PWideChar(Line);
-    pDest := PWideChar(Result);
-    // We use another TabMask here to get the difference to 2^n.
-    TabMask := TabWidth - 1;
-    repeat
-      if pSrc^ = #9 then
-      begin
-        i := TabWidth - (DestLen and TabMask);
-        Inc(DestLen, i);
-        // This is used for both drawing and other stuff and is meant to be #9 and not #32
-        repeat
-          pDest^ := #9;
-          Inc(pDest);
-          Dec(i);
-        until (i = 0);
-        Dec(TabCount);
-        if TabCount = 0 then
-        begin
-          repeat
-            Inc(pSrc);
-            pDest^ := pSrc^;
-            Inc(pDest);
-          until (pSrc^ = #0);
-          exit;
-        end;
-      end
-      else
-      begin
-        pDest^ := pSrc^;
-        Inc(pDest);
-        Inc(DestLen);
-      end;
-      Inc(pSrc);
-    until (pSrc^ = #0);
-  end
-  else
-    HasTabs := False;
-end;
-
-function ConvertTabs2n(const Line: string; TabWidth: Integer): string;
-var
-  HasTabs: Boolean;
-begin
-  Result := ConvertTabs2nEx(Line, TabWidth, HasTabs);
-end;
-
-function ConvertTabsEx(const Line: string; TabWidth: Integer;
+function ExpandTabsEx(const Line: string; TabWidth: Integer;
   var HasTabs: Boolean): string;
 var
   i, DestLen, TabCount: Integer;
@@ -321,7 +212,7 @@ begin
         i := TabWidth - (DestLen mod TabWidth);
         Inc(DestLen, i);
         repeat
-          pDest^ := #9;
+          pDest^ := ' ';
           Inc(pDest);
           Dec(i);
         until (i = 0);
@@ -349,44 +240,11 @@ begin
     HasTabs := False;
 end;
 
-function ConvertTabs(const Line: string; TabWidth: Integer): string;
+function ExpandTabs(const Line: string; TabWidth: Integer): string;
 var
   HasTabs: Boolean;
 begin
-  Result := ConvertTabsEx(Line, TabWidth, HasTabs);
-end;
-
-function IsPowerOfTwo(TabWidth: Integer): Boolean;
-var
-  nW: Integer;
-begin
-  nW := 2;
-  repeat
-    if (nW >= TabWidth) then
-      break;
-    Inc(nW, nW);
-  until (nW >= $10000); // we don't want 64 kByte spaces...
-  Result := (nW = TabWidth);
-end;
-
-function GetBestConvertTabsProc(TabWidth: Integer): TConvertTabsProc;
-begin
-  if (TabWidth < 2) then
-    Result := TConvertTabsProc(@ConvertTabs1)
-  else if IsPowerOfTwo(TabWidth) then
-    Result := TConvertTabsProc(@ConvertTabs2n)
-  else
-    Result := TConvertTabsProc(@ConvertTabs);
-end;
-
-function GetBestConvertTabsProcEx(TabWidth: Integer): TConvertTabsProcEx;
-begin
-  if (TabWidth < 2) then
-    Result := ConvertTabs1Ex
-  else if IsPowerOfTwo(TabWidth) then
-    Result := ConvertTabs2nEx
-  else
-    Result := ConvertTabsEx;
+  Result := ExpandTabsEx(Line, TabWidth, HasTabs);
 end;
 
 function GetExpandedLength(const aStr: string; aTabWidth: Integer): Integer;
@@ -764,6 +622,36 @@ begin
   end
 end;
 
+procedure EnumerateKeywords(AKind: integer; KeywordList: string;
+  IsIdentChar: TCategoryMethod; AKeywordProc: TEnumerateKeywordEvent);
+var
+  pStart, pEnd: PWideChar;
+  Keyword: string;
+begin
+  if Assigned(AKeywordProc) and (KeywordList <> '') then
+  begin
+    pEnd := PWideChar(KeywordList);
+    pStart := pEnd;
+    repeat
+      // skip over chars that are not in Identifiers
+      while (pStart^ <> #0) and not IsIdentChar(pStart^) do
+        Inc(pStart);
+      if pStart^ = #0 then break;
+      // find the last char that is in Identifiers
+      pEnd := pStart + 1;
+      while (pEnd^ <> #0) and IsIdentChar(pEnd^) do
+        Inc(pEnd);
+      // call the AKeywordProc with the keyword
+      SetString(Keyword, pStart, pEnd - pStart);
+      AKeywordProc(Keyword, AKind);
+      Keyword := '';
+      // pEnd points to a char not in Identifiers, restart after that
+      if pEnd^ <> #0 then
+        pStart := pEnd + 1;
+    until (pStart^ = #0) or (pEnd^ = #0);
+  end;
+end;
+
 {$IFDEF SYN_HEREDOC}
 // Fast Frame Check Sequence (FCS) Implementation
 // Translated from sample code given with RFC 1171 by Marko Njezic
@@ -811,61 +699,15 @@ begin
 end;
 {$ENDIF}
 
-procedure SynDrawGradient(const ACanvas: TCanvas;
-  const AStartColor, AEndColor: TColor; ASteps: Integer; const ARect: TRect;
-  const AHorizontal: Boolean);
-var
-  StartColorR, StartColorG, StartColorB: Byte;
-  DiffColorR, DiffColorG, DiffColorB: Integer;
-  i, Size: Integer;
-  PaintRect: TRect;
+function CeilOfIntDiv(Dividend, Divisor: Cardinal): Integer;
+Var
+  Res: UInt64;
+  Remainder: UInt64;
 begin
-  StartColorR := GetRValue(ColorToRGB(AStartColor));
-  StartColorG := GetGValue(ColorToRGB(AStartColor));
-  StartColorB := GetBValue(ColorToRGB(AStartColor));
-
-  DiffColorR := GetRValue(ColorToRGB(AEndColor)) - StartColorR;
-  DiffColorG := GetGValue(ColorToRGB(AEndColor)) - StartColorG;
-  DiffColorB := GetBValue(ColorToRGB(AEndColor)) - StartColorB;
-
-  ASteps := MinMax(ASteps, 2, 256);
-
-  if AHorizontal then
-  begin
-    Size := ARect.Right - ARect.Left;
-    PaintRect.Top := ARect.Top;
-    PaintRect.Bottom := ARect.Bottom;
-
-    for i := 0 to ASteps - 1 do
-    begin
-      PaintRect.Left := ARect.Left + MulDiv(i, Size, ASteps);
-      PaintRect.Right := ARect.Left + MulDiv(i + 1, Size, ASteps);
-
-      ACanvas.Brush.Color := RGB(StartColorR + MulDiv(i, DiffColorR,
-        ASteps - 1), StartColorG + MulDiv(i, DiffColorG, ASteps - 1),
-        StartColorB + MulDiv(i, DiffColorB, ASteps - 1));
-
-      ACanvas.FillRect(PaintRect);
-    end;
-  end
-  else
-  begin
-    Size := ARect.Bottom - ARect.Top;
-    PaintRect.Left := ARect.Left;
-    PaintRect.Right := ARect.Right;
-
-    for i := 0 to ASteps - 1 do
-    begin
-      PaintRect.Top := ARect.Top + MulDiv(i, Size, ASteps);
-      PaintRect.Bottom := ARect.Top + MulDiv(i + 1, Size, ASteps);
-
-      ACanvas.Brush.Color := RGB(StartColorR + MulDiv(i, DiffColorR,
-        ASteps - 1), StartColorG + MulDiv(i, DiffColorG, ASteps - 1),
-        StartColorB + MulDiv(i, DiffColorB, ASteps - 1));
-
-      ACanvas.FillRect(PaintRect);
-    end;
-  end;
+  DivMod(Dividend,  Divisor, Res, Remainder);
+  if Remainder > 0 then
+    Inc(Res);
+  Result := Integer(Res);
 end;
 
 function DefaultFontName: string;
@@ -875,6 +717,34 @@ begin
   else
     Result := 'Courier New';
 end;
+
+function WeightEnumFontsProc(EnumLogFontExDV: PEnumLogFontExDV;
+  EnumTextMetric: PEnumTextMetric;
+  FontType: DWORD; LParam: LPARAM): Integer; stdcall;
+begin;
+  PInteger(LPARAM)^ :=  EnumLogFontExDV.elfEnumLogfontEx.elfLogFont.lfWeight;
+  Result := 0;
+end;
+
+function GetCorrectFontWeight(Font: TFont): Integer;
+var
+  DC: HDC;
+  LogFont: TLogFont;
+begin
+  if TFontStyle.fsBold in Font.Style then
+    Result := FW_BOLD
+  else
+  begin
+    Result := FW_NORMAL;
+    DC := GetDC(0);
+    FillChar(LogFont, SizeOf(LogFont), 0);
+    LogFont.lfCharSet := DEFAULT_CHARSET;
+    StrPLCopy(LogFont.lfFaceName, Font.Name, Length(LogFont.lfFaceName) - 1);
+    EnumFontFamiliesEx(DC, LogFont, @WeightEnumFontsProc, LPARAM(@Result), 0);
+    ReleaseDC(0, DC);
+  end;
+end;
+
 
 {$IF CompilerVersion <= 32}
 function GrowCollection(OldCapacity, NewCount: Integer): Integer;

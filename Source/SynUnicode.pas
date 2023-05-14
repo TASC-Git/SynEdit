@@ -52,13 +52,6 @@ const
   UTF32BOMBE: array[0..3] of Byte = ($00, $00, $FE, $FF);
 
 const
-  // constants describing range of the Unicode Private Use Area (Unicode 3.2)
-  PrivateUseLow = WideChar($E000);
-  PrivateUseHigh = WideChar($F8FF);
-  // filler char: helper for painting wide glyphs
-  FillerChar = PrivateUseLow;
-
-const
   WideNull = WideChar(#0);
   WideTabulator = WideChar(#9);
   WideSpace = WideChar(#32);
@@ -74,21 +67,8 @@ const
   WideLineSeparator = WideChar($2028);
   WideParagraphSeparator = WideChar($2029);
 
-type
-  TFontCharSet = 0..255;
-
-function SynCharNext(P: PWideChar): PWideChar; overload;
-function SynCharNext(P: PWideChar; out Element: String): PWideChar; overload;
-function SynUniElementsCount(S: string) : integer;
-
 { functions taken from JCLUnicode.pas }
 procedure StrSwapByteOrder(Str: PWideChar);
-function CharSetFromLocale(Language: LCID): TFontCharSet;
-function CodePageFromLocale(Language: LCID): Integer;
-function KeyboardCodePage: Word;
-
-{ functions providing same behavior on Win9x and WinNT based systems}
-function GetTextSize(DC: HDC; Str: PWideChar; Count: Integer): TSize;
 
 { Unicode streaming-support }
 type
@@ -109,6 +89,9 @@ procedure SetClipboardText(const Text: string);
 { misc functions }
 function IsWideCharMappableToAnsi(const WC: WideChar): Boolean;
 
+var
+  UserLocaleName: array [0..LOCALE_NAME_MAX_LENGTH - 1] of Char;
+
 implementation
 
 uses
@@ -116,34 +99,6 @@ uses
   Math,
   SysConst,
   RTLConsts;
-
-
-function SynCharNext(P: PWideChar): PWideChar;
-begin
-  Result := Windows.CharNext(P);
-end;
-
-function SynCharNext(P: PWideChar; out Element: String): PWideChar; overload;
-Var
-  Start : PWideChar;
-begin
-  Start := P;
-  Result := Windows.CharNext(P);
-  SetString(Element, Start, Result - Start);
-end;
-
-function SynUniElementsCount(S: string) : integer;
-Var
-  P : PWideChar;
-begin
-  Result := 0;
-  P := PWideChar(S);
-  while P^ <> #0 do
-  begin
-    P := Windows.CharNext(P);
-    Inc(Result);
-  end;
-end;
 
 // exchanges in each character of the given string the low order and high order
 // byte to go from LSB to MSB and vice versa.
@@ -157,43 +112,6 @@ begin
   begin
     P^ := MakeWord(HiByte(P^), LoByte(P^));
     Inc(P);
-  end;
-end;
-
-function TranslateCharsetInfoEx(lpSrc: PDWORD; var lpCs: TCharsetInfo; dwFlags: DWORD): BOOL; stdcall;
-  external 'gdi32.dll' name 'TranslateCharsetInfo';
-
-function CharSetFromLocale(Language: LCID): TFontCharSet;
-var
-  CP: Cardinal;
-  CSI: TCharsetInfo;
-begin
-  CP:= CodePageFromLocale(Language);
-  TranslateCharsetInfoEx(Pointer(CP), CSI, TCI_SRCCODEPAGE);
-  Result:= CSI.ciCharset;
-end;
-
-// determines the code page for a given locale
-function CodePageFromLocale(Language: LCID): Integer;
-var
-  Buf: array[0..6] of Char;
-begin
-  GetLocaleInfo(Language, LOCALE_IDefaultAnsiCodePage, Buf, 6);
-  Result := StrToIntDef(Buf, GetACP);
-end;
-
-function KeyboardCodePage: Word;
-begin
-  Result := CodePageFromLocale(GetKeyboardLayout(0) and $FFFF);
-end;
-
-function GetTextSize(DC: HDC; Str: PWideChar; Count: Integer): TSize;
-begin
-  Result.cx := 0;
-  Result.cy := 0;
-
-  begin
-    GetTextExtentPoint32W(DC, Str, Count, Result);
   end;
 end;
 
@@ -241,7 +159,7 @@ begin
   begin
     SetLength(Buffer, BufferSize);
     Stream.Read(Buffer, 0, BufferSize);
-    Stream.Seek(-BufferSize, soFromCurrent);
+    Stream.Seek(-BufferSize, soCurrent);
 
     { first search for BOM }
     Encoding := nil;
@@ -405,7 +323,7 @@ begin
   begin
     Setlength(Buffer, Length(Preamble));
     Stream.Read(Buffer, 0, Length(Preamble));
-    Stream.Seek(-Length(Preamble), soFromCurrent);
+    Stream.Seek(-Length(Preamble), soCurrent);
     if TBytesEqual(Preamble, Buffer, Length(Preamble)) then
     begin
       WithBOM := True;
@@ -418,7 +336,7 @@ begin
   begin
     Setlength(Buffer, Length(Preamble));
     Stream.Read(Buffer, 0, Length(Preamble));
-    Stream.Seek(-Length(Preamble), soFromCurrent);
+    Stream.Seek(-Length(Preamble), soCurrent);
     if TBytesEqual(Preamble, Buffer, Length(Preamble)) then
     begin
       WithBOM := True;
@@ -452,6 +370,8 @@ begin
 end;
 
 initialization
-  Assert(Win32Platform = VER_PLATFORM_WIN32_NT, 'Unsupported Windows version');
+  Assert(TOSVersion.Check(6), 'Unsupported Windows version.  Windows Vista or higher required');
+  if LCIDToLocaleName(GetUserDefaultLCID, UserLocaleName, LOCALE_NAME_MAX_LENGTH, 0) = 0 then
+    RaiseLastOSError;
 
 end.

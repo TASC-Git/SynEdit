@@ -13,16 +13,10 @@ The Original Code is based on mwHighlighter.pas by Martin Waldenburg, part of
 the mwEdit component suite.
 Portions created by Martin Waldenburg are Copyright (C) 1998 Martin Waldenburg.
 Unicode translation by Maël Hörz.
-Options property added by CodehunterWorks
 All Rights Reserved.
 
 Contributors to the SynEdit and mwEdit projects are listed in the
 Contributors.txt file.
-
-You may retrieve the latest version of this file at the SynEdit home page,
-located at http://SynEdit.SourceForge.net
-
-Known Issues:
 -------------------------------------------------------------------------------}
 
 unit SynEditHighlighter;
@@ -32,19 +26,15 @@ unit SynEditHighlighter;
 interface
 
 uses
-  Graphics,
-  Windows,
-  Registry,
-  IniFiles,
+  Winapi.Windows,
+  System.SysUtils,
+  System.Classes,
+  System.Win.Registry,
+  System.IniFiles,
+  Vcl.Graphics,
   SynEditTypes,
   SynEditMiscClasses,
-  SynUnicode,
-  SysUtils,
-  Classes,
-  SynEditHighlighterOptions;
-
-type
-  TBetterRegistry = SynEditMiscClasses.TBetterRegistry;
+  SynUnicode;
 
 type
   TSynHighlighterAttributes = class(TPersistent)
@@ -74,8 +64,8 @@ type
     procedure InternalSaveDefaultValues;
     function LoadFromBorlandRegistry(RootKey: HKEY; AttrKey, AttrName: string;
       OldStyle: Boolean): Boolean; virtual;
-    function LoadFromRegistry(Reg: TBetterRegistry): Boolean;
-    function SaveToRegistry(Reg: TBetterRegistry): Boolean;
+    function LoadFromRegistry(Reg: TRegistry): Boolean;
+    function SaveToRegistry(Reg: TRegistry): Boolean;
     function LoadFromFile(Ini: TCustomIniFile): Boolean;
     function SaveToFile(Ini: TCustomIniFile): Boolean;
   public
@@ -118,7 +108,6 @@ type
     FAdditionalWordBreakChars: TSysCharSet;
     FAdditionalIdentChars: TSysCharSet;
     FExportName: string;
-    FOptions: TSynEditHighlighterOptions;
     function GetExportName: string;
     procedure SetEnabled(const Value: Boolean);
     procedure SetAdditionalIdentChars(const Value: TSysCharSet);
@@ -128,10 +117,6 @@ type
     fCasedLineStr: string;
     fCaseSensitive: Boolean;
     fDefaultFilter: string;
-    fExpandedLine: PWideChar;
-    fExpandedLineLen: Integer;
-    fExpandedLineStr: string;
-    fExpandedTokenPos: Integer;
     fLine: PWideChar;
     fLineLen: Integer;
     fLineStr: string;
@@ -141,8 +126,9 @@ type
     fTokenPos: Integer;
     fUpdateChange: Boolean;
     Run: Integer;
-    ExpandedRun: Integer;
     fOldRun: Integer;
+    // If FScanningToEOL is true then only ranges need to be scanned.
+    FScanningToEOL: Boolean;
     procedure Loaded; override;
     procedure AddAttribute(Attri: TSynHighlighterAttributes);
     procedure DefHighlightChange(Sender: TObject);
@@ -161,14 +147,10 @@ type
     procedure SetAttributesOnChange(AEvent: TNotifyEvent);
     procedure SetDefaultFilter(Value: string); virtual;
     procedure SetSampleSource(Value: string); virtual;
-  protected
-    function GetCapabilitiesProp: TSynHighlighterCapabilities;
-    function GetFriendlyLanguageNameProp: string;
-    function GetLanguageNameProp: string;
   public
     class function GetCapabilities: TSynHighlighterCapabilities; virtual;
-    class function GetFriendlyLanguageName: string; virtual;
-    class function GetLanguageName: string; virtual;
+    class function GetFriendlyLanguageName: string; virtual; abstract;
+    class function GetLanguageName: string; virtual; abstract;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -176,20 +158,16 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     function GetEol: Boolean; virtual; abstract;
-    function GetExpandedToken: string; virtual;
-    function GetExpandedTokenPos: Integer; virtual;
     function GetKeyWords(TokenKind: Integer): string; virtual;
     function GetRange: Pointer; virtual;
     function GetToken: string; virtual;
     function GetTokenAttribute: TSynHighlighterAttributes; virtual; abstract;
     function GetTokenKind: Integer; virtual; abstract;
+    function GetTokenLength: Integer; virtual;
     function GetTokenPos: Integer; virtual;
     function IsKeyword(const AKeyword: string): Boolean; virtual;
     procedure Next; virtual;
     procedure NextToEol;
-    function PosToExpandedPos(Pos: Integer): Integer;
-    procedure SetLineExpandedAtWideGlyphs(const Line, ExpandedLine: string;
-      LineNumber: Integer); virtual;
     procedure SetLine(const Value: string; LineNumber: Integer); virtual;
     procedure SetRange(Value: Pointer); virtual;
     procedure ResetRange; virtual;
@@ -206,15 +184,15 @@ type
     function IsIdentChar(AChar: WideChar): Boolean; virtual;
     function IsWhiteChar(AChar: WideChar): Boolean; virtual;
     function IsWordBreakChar(AChar: WideChar): Boolean; virtual;
-    property FriendlyLanguageName: string read GetFriendlyLanguageNameProp;
-    property LanguageName: string read GetLanguageNameProp;
+    property FriendlyLanguageName: string read GetFriendlyLanguageName;
+    property LanguageName: string read GetLanguageName;
   public
     property AdditionalIdentChars: TSysCharSet read FAdditionalIdentChars write SetAdditionalIdentChars;
     property AdditionalWordBreakChars: TSysCharSet read FAdditionalWordBreakChars write SetAdditionalWordBreakChars;
     property AttrCount: Integer read GetAttribCount;
     property Attribute[Index: Integer]: TSynHighlighterAttributes
       read GetAttribute;
-    property Capabilities: TSynHighlighterCapabilities read GetCapabilitiesProp;
+    property Capabilities: TSynHighlighterCapabilities read GetCapabilities;
     property SampleSource: string read GetSampleSource write SetSampleSource;
     property CommentAttribute: TSynHighlighterAttributes
       index SYN_ATTR_COMMENT read GetDefaultAttribute;
@@ -233,7 +211,6 @@ type
     property DefaultFilter: string read GetDefaultFilter write SetDefaultFilter
       stored IsFilterStored;
     property Enabled: Boolean read fEnabled write SetEnabled default True;
-    property Options: TSynEditHighlighterOptions read FOptions write FOptions; // <-- Codehunter patch
   end;
 
   TSynCustomHighlighterClass = class of TSynCustomHighlighter;
@@ -465,7 +442,7 @@ const
     bgDefault: string;
     fgIndex16: string;
     bgIndex16: string;
-    reg: TBetterRegistry;
+    reg: TRegistry;
 
     function Get(var Name: string): string;
     var
@@ -480,7 +457,7 @@ const
   begin { LoadOldStyle }
     Result := False;
     try
-      reg := TBetterRegistry.Create;
+      reg := TRegistry.Create;
       reg.RootKey := RootKey;
       try
         with reg do
@@ -533,7 +510,7 @@ const
     fontUnderline: string;
     fgDefault: string;
     bgDefault: string;
-    reg: TBetterRegistry;
+    reg: TRegistry;
 
     function IsTrue(Value: string): Boolean;
     begin
@@ -543,7 +520,7 @@ const
   begin
     Result := False;
     try
-      reg := TBetterRegistry.Create;
+      reg := TRegistry.Create;
       reg.RootKey := RootKey;
       try
         with reg do
@@ -645,7 +622,7 @@ begin
   end;
 end;
 
-function TSynHighlighterAttributes.LoadFromRegistry(Reg: TBetterRegistry): Boolean;
+function TSynHighlighterAttributes.LoadFromRegistry(Reg: TRegistry): Boolean;
 var
   Key: string;
 begin
@@ -665,7 +642,7 @@ begin
     Result := False;
 end;
 
-function TSynHighlighterAttributes.SaveToRegistry(Reg: TBetterRegistry): Boolean;
+function TSynHighlighterAttributes.SaveToRegistry(Reg: TRegistry): Boolean;
 var
   Key: string;
 begin
@@ -741,7 +718,6 @@ begin
   fAttrChangeHooks := TSynNotifyEventChain.CreateEx(Self);
   fDefaultFilter := '';
   fEnabled := True;
-  FOptions:= TSynEditHighlighterOptions.Create; // <-- Codehunter patch
 end;
 
 destructor TSynCustomHighlighter.Destroy;
@@ -750,7 +726,6 @@ begin
   FreeHighlighterAttributes;
   fAttributes.Free;
   fAttrChangeHooks.Free;
-  FOptions.Free; // <-- Codehunter patch
 end;
 
 procedure TSynCustomHighlighter.BeginUpdate;
@@ -836,10 +811,10 @@ end;
 function TSynCustomHighlighter.LoadFromRegistry(RootKey: HKEY;
   Key: string): Boolean;
 var
-  r: TBetterRegistry;
+  r: TRegistry;
   i: Integer;
 begin
-  r := TBetterRegistry.Create;
+  r := TRegistry.Create;
   try
     r.RootKey := RootKey;
     if r.OpenKeyReadOnly(Key) then
@@ -858,10 +833,10 @@ end;
 function TSynCustomHighlighter.SaveToRegistry(RootKey: HKEY;
   Key: string): Boolean;
 var
-  r: TBetterRegistry;
+  r: TRegistry;
   i: Integer;
 begin
-  r := TBetterRegistry.Create;
+  r := TRegistry.Create;
   try
     r.RootKey := RootKey;
     if r.OpenKey(Key,True) then
@@ -940,22 +915,9 @@ begin
   Result := [hcRegistry]; //registry save/load supported by default
 end;
 
-function TSynCustomHighlighter.GetCapabilitiesProp: TSynHighlighterCapabilities;
-begin
-  Result := GetCapabilities;
-end;
-
 function TSynCustomHighlighter.GetDefaultFilter: string;
 begin
   Result := fDefaultFilter;
-end;
-
-function TSynCustomHighlighter.GetExpandedTokenPos: Integer;
-begin
-  if fExpandedLine = nil then
-    Result := fTokenPos
-  else
-    Result := fExpandedTokenPos;
 end;
 
 function TSynCustomHighlighter.GetExportName: string;
@@ -963,48 +925,6 @@ begin
   if FExportName = '' then
     FExportName := SynEditMiscProcs.DeleteTypePrefixAndSynSuffix(ClassName);
   Result := FExportName;
-end;
-
-function TSynCustomHighlighter.GetExpandedToken: string;
-var
-  Len: Integer;
-begin
-  if fExpandedLine = nil then
-  begin
-    Result := GetToken;
-    Exit;
-  end;
-
-  Len := ExpandedRun - fExpandedTokenPos;
-  SetLength(Result, Len);
-  if Len > 0 then
-    StrLCopy(@Result[1], fExpandedLine + fExpandedTokenPos, Len);
-end;
-
-class function TSynCustomHighlighter.GetFriendlyLanguageName: string;
-begin
-{$IFDEF SYN_DEVELOPMENT_CHECKS}
-  raise Exception.CreateFmt('%s.GetFriendlyLanguageName not implemented', [ClassName]);
-{$ENDIF}
-  Result := SYNS_FriendlyLangUnknown;
-end;
-
-class function TSynCustomHighlighter.GetLanguageName: string;
-begin
-{$IFDEF SYN_DEVELOPMENT_CHECKS}
-  raise Exception.CreateFmt('%s.GetLanguageName not implemented', [ClassName]);
-{$ENDIF}
-  Result := SYNS_LangUnknown;
-end;
-
-function TSynCustomHighlighter.GetFriendlyLanguageNameProp: string;
-begin
-  Result := GetFriendlyLanguageName;
-end;
-
-function TSynCustomHighlighter.GetLanguageNameProp: string;
-begin
-  Result := GetLanguageName;
 end;
 
 function TSynCustomHighlighter.GetRange: Pointer;
@@ -1017,9 +937,12 @@ var
   Len: Integer;
 begin
   Len := Run - fTokenPos;
-  SetLength(Result, Len);
-  if Len > 0 then
-    StrLCopy(@Result[1], fCasedLine + fTokenPos, Len);
+  SetString(Result, fCasedLine + fTokenPos, Len);
+end;
+
+function TSynCustomHighlighter.GetTokenLength: Integer;
+begin
+  Result := Run - fTokenPos;
 end;
 
 function TSynCustomHighlighter.GetTokenPos: Integer;
@@ -1148,28 +1071,16 @@ begin
 end;
 
 procedure TSynCustomHighlighter.Next;
-var
-  Delta: Integer;
 begin
   if fOldRun = Run then Exit;
-
-  fExpandedTokenPos := ExpandedRun;
-  if fExpandedLine = nil then Exit;
-
-  Delta := Run - fOldRun;
-  while Delta > 0 do
-  begin
-    while fExpandedLine[ExpandedRun] = FillerChar do
-      inc(ExpandedRun);
-    inc(ExpandedRun);
-    dec(Delta);
-  end;
   fOldRun := Run;
 end;
 
 procedure TSynCustomHighlighter.NextToEol;
 begin
+  FScanningToEOL := True;
   while not GetEol do Next;
+  FScanningToEOL := False;
 end;
 
 procedure TSynCustomHighlighter.ResetRange;
@@ -1204,21 +1115,9 @@ begin
   end;
 end;
 
-procedure TSynCustomHighlighter.SetLineExpandedAtWideGlyphs(const Line,
-  ExpandedLine: string; LineNumber: Integer);
-begin
-  fExpandedLineStr := ExpandedLine;
-  fExpandedLine := PWideChar(fExpandedLineStr);
-  fExpandedLineLen := Length(fExpandedLineStr);
-  DoSetLine(Line, LineNumber);
-  Next;
-end;
-
 procedure TSynCustomHighlighter.SetLine(const Value: string; LineNumber: Integer);
 begin
-  fExpandedLineStr := '';
-  fExpandedLine := nil;
-  fExpandedLineLen := 0;
+  FScanningToEOL := False;
   DoSetLine(Value, LineNumber);
   Next;
 end;
@@ -1229,11 +1128,10 @@ procedure TSynCustomHighlighter.DoSetLine(const Value: string; LineNumber: Integ
   begin
     // segregated here so case-insensitive highlighters don't have to pay the overhead
     // of the exception frame for the release of the temporary string
-    dest := SysUtils.AnsiLowerCase(value);
+    dest := System.SysUtils.AnsiLowerCase(value);
   end;
 
 begin
-  // UnicodeStrings are not reference counted, hence we need to copy
   if fCaseSensitive then
   begin
     fLineStr := Value;
@@ -1250,7 +1148,6 @@ begin
   fLineLen := Length(fLineStr);
 
   Run := 0;
-  ExpandedRun := 0;
   fOldRun := Run;
   fLineNumber := LineNumber;
 end;
@@ -1266,7 +1163,6 @@ end;
 
 procedure TSynCustomHighlighter.SetSampleSource(Value: string);
 begin
-  // TODO: sure this should be empty?
 end;
 
 procedure TSynCustomHighlighter.UnhookAttrChangeEvent(ANotifyEvent: TNotifyEvent);
@@ -1287,28 +1183,6 @@ procedure TSynCustomHighlighter.Loaded;
 begin
   inherited;
   DefHighlightChange(nil);
-end;
-
-// Pos and Result are 1-based (i.e. positions in a string not a PWideChar)
-function TSynCustomHighlighter.PosToExpandedPos(Pos: Integer): Integer;
-var
-  i: Integer;
-begin
-  if fExpandedLine = nil then
-  begin
-    Result := Pos;
-    Exit;
-  end;
-
-  Result := 0;
-  i := 0;
-  while i < Pos do
-  begin
-    while fExpandedLine[Result] = FillerChar do
-      inc(Result);
-    inc(Result);
-    inc(i);
-  end;
 end;
 
 initialization
