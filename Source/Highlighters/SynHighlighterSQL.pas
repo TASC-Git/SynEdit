@@ -45,6 +45,11 @@ Known Issues:
 @lastmod(2022-02-11)
 The SynHighlighterSQL implements a highlighter for SQL for the SynEdit projects.
 Different SQL dialects can be selected via the Dialect property.
+
+** March 2022 **
+TASC changed/added to allow descendant classes to se the fTokenID
+procedure SetTokenID(const Value: TtkTokenKind);
+
 }
 
 unit SynHighlighterSQL;
@@ -163,6 +168,10 @@ type
     procedure Next; override;
     procedure ResetRange; override;
     procedure SetRange(Value: Pointer); override;
+
+// TASC Changed -- descendants need to alter the fTokenID and there isnt a setter
+    procedure SetTokenID(const Value: TtkTokenKind);
+
   published
     property CommentAttri: TSynHighlighterAttributes read fCommentAttri
       write fCommentAttri;
@@ -2062,6 +2071,11 @@ end;
 procedure TSynSQLSyn.SetTableNames(const Value: TStrings);
 begin
   fTableNames.Assign(Value);
+end;
+
+procedure TSynSQLSyn.SetTokenID(const Value: TtkTokenKind);
+begin
+   fTokenID := Value;
 end;
 
 procedure TSynSQLSyn.TableNamesChanged(Sender: TObject);
