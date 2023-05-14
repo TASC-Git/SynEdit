@@ -31,6 +31,14 @@
   Known Issues:
   -----------------------------------------------------------------------------}
 
+(*
+DQ: 14-May
+Merged with Primary Master to update bugs fixes etc and this had changed a lot
+The original file SynEditTextBufferB4Merge.pas in same folder is as it says
+Potentially there are DQ changes to SynEdit however the merge did not conflict except with this file
+As at time of writing I did not review whether virtual works anymore
+*)
+
 unit SynEditTextBuffer;
 
 {$I SynEdit.inc}
