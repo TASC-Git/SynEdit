@@ -14,7 +14,6 @@ object SimpleIDEMainForm: TSimpleIDEMainForm
   OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
   OnDestroy = FormDestroy
-  PixelsPerInch = 96
   TextHeight = 13
   object ToolBarDebug: TToolBar
     Left = 0
@@ -197,9 +196,6 @@ object SimpleIDEMainForm: TSimpleIDEMainForm
     end
   end
   object SynPasSyn: TSynPasSyn
-    Options.AutoDetectEnabled = False
-    Options.AutoDetectLineLimit = 0
-    Options.Visible = False
     Left = 172
     Top = 100
   end
