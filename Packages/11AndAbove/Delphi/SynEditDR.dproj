@@ -68,8 +68,9 @@
         <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;Winapi;System.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <DCC_ObjOutput>..\cpp\$(Platform)\$(Config)</DCC_ObjOutput>
         <DCC_OutputNeverBuildDcps>true</DCC_OutputNeverBuildDcps>
+        <DCC_UnitSearchPath>..\..\..\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_WriteableConstants>true</DCC_WriteableConstants>
-        <DllSuffix>280</DllSuffix>
+        <DllSuffix>$(Auto)</DllSuffix>
         <GenDll>true</GenDll>
         <GenPackage>true</GenPackage>
         <RuntimeOnlyPackage>true</RuntimeOnlyPackage>
@@ -98,7 +99,6 @@
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <DllSuffix>280</DllSuffix>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
@@ -260,9 +260,10 @@
                     <Source Name="MainSource">SynEditDR.dpk</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="C:\Users\Public\Documents\Embarcadero\Studio\22.0\Bpl\ThemeMgrPkg.bpl">File C:\Users\Public\Documents\Embarcadero\Studio\22.0\Bpl\ThemeMgrPkg.bpl not found</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k280.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp280.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\bcboffice2k280.bpl">Embarcadero C++Builder-Package für Office 2000-Server</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\bcbofficexp280.bpl">Embarcadero C++Builder-Package für Office XP-Server</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k280.bpl">Microsoft Office 2000 Beispiele für gekapselte Komponenten für Automatisierungsserver</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp280.bpl">Microsoft Office XP Beispiele für gekapselte Komponenten für Automation Server</Excluded_Packages>
                 </Excluded_Packages>
                 <VersionInfo>
                     <VersionInfo Name="IncludeVerInfo">True</VersionInfo>
@@ -294,10 +295,9 @@
             </Delphi.Personality>
             <ModelSupport>False</ModelSupport>
             <Platforms>
-                <Platform value="Android">False</Platform>
-                <Platform value="Android64">False</Platform>
-                <Platform value="iOSDevice64">False</Platform>
+                <Platform value="Linux64">False</Platform>
                 <Platform value="OSX64">False</Platform>
+                <Platform value="OSXARM64">False</Platform>
                 <Platform value="Win32">True</Platform>
                 <Platform value="Win64">True</Platform>
             </Platforms>
