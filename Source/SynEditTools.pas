@@ -74,7 +74,6 @@ begin
     Editor:= TSynEdit(Sender);
 
     if not Assigned(Editor) or
-       (Editor.PaintLock > 0) or
 {$IFDEF USEVIRTUALLIST}
        (Editor.VirtualMode) or
 {$ENDIF}
@@ -83,7 +82,9 @@ begin
     LN := Length(Editor.Text);
     if LN < 2 then exit;
 
-    Start:= Editor.SelStart;
+//    Start:= Editor.SelStart;
+// if virtual string list then RowColToCharIndex fails because forced to synstringlist
+    Start := Editor.RowColToCharIndex(Editor.CaretXY);
 
     if (Start > 0) and
        (Start <= LN) then
