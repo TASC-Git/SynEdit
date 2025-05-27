@@ -6525,6 +6525,20 @@ function TCustomSynEdit.NextWordPosEx(const XY: TBufferCoord): TBufferCoord;
 var
   CX, CY, LineLen: Integer;
   Line: string;
+
+  procedure IncToNewLine;
+  begin
+    // find first IdentChar or multibyte char in the next line
+    if CY < Lines.Count then
+    begin
+      Line := Lines[CY];
+      Inc(CY);
+      CX := StrScanForCharInCategory(Line, 1, IsIdentChar);
+      if CX = 0 then
+        Inc(CX);
+    end;
+  end;
+
 begin
   CX := XY.Char;
   CY := XY.Line;
@@ -6537,24 +6551,31 @@ begin
     LineLen := Length(Line);
     if CX >= LineLen then
     begin
-      // find first IdentChar or multibyte char in the next line
-      if CY < Lines.Count then
-      begin
-        Line := Lines[CY];
-        Inc(CY);
-        CX := StrScanForCharInCategory(Line, 1, IsIdentChar);
-        if CX = 0 then
-          Inc(CX);
-      end;
+      IncToNewLine;
     end
     else
     begin
-      // find next word-break-char if current char is an IdentChar
-      if IsIdentChar(Line[CX]) then
-        CX := StrScanForCharInCategory(Line, CX, IsWordBreakChar);
-      // if word-break-char found, find the next IdentChar
-      if CX > 0 then
-        CX := StrScanForCharInCategory(Line, CX, IsIdentChar);
+      // DQ: Fixed a locked Ctrl+Right Arrow on @var for SQL Server highlighter
+      if IsIdentChar(Line[CX]) and IsWordBreakChar(Line[CX]) then
+      begin
+        if CX+1 >= LineLen then
+          IncToNewLine
+        else
+          CX := StrScanForCharInCategory(Line, CX+1, IsIdentChar)
+      end else
+      begin
+         if IsIdentChar(Line[CX]) then
+           CX := StrScanForCharInCategory(Line, CX, IsWordBreakChar);
+         if (CX > 0) and (CX < LineLen) then
+           CX := StrScanForCharInCategory(Line, CX, IsIdentChar);
+      end;
+// Original code
+//      if IsIdentChar(Line[CX]) then
+//        CX := StrScanForCharInCategory(Line, CX, IsWordBreakChar);
+//      // if word-break-char found, find the next IdentChar
+//      if CX > 0 then
+//        CX := StrScanForCharInCategory(Line, CX, IsIdentChar);
+
       // if one of those failed just position at the end of the line
       if CX = 0 then
         CX := LineLen + 1;
