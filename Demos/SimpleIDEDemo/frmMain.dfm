@@ -121,11 +121,8 @@ object SimpleIDEMainForm: TSimpleIDEMainForm
         Width = 2
       end>
     Highlighter = SynPasSyn
-    Options = [eoAutoIndent, eoKeepCaretX, eoScrollByOneLess, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
     ReadOnly = True
     ScrollbarAnnotations = <>
-    SelectedColor.Alpha = 0.400000005960464500
-    VisibleSpecialChars = []
     OnSpecialLineColors = SynEditorSpecialLineColors
   end
   object Statusbar: TStatusBar

@@ -50,8 +50,7 @@ object Form1: TForm1
         Kind = gbkMargin
         Width = 3
       end>
-    SelectedColor.Alpha = 0.400000005960464500
-    VisibleSpecialChars = []
+    ScrollbarAnnotations = <>
   end
   object btnRender: TButton
     Left = 377

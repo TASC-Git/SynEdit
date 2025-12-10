@@ -109,8 +109,6 @@ type
     FOnInserted: TStringListChangeEvent;
     FOnPut: TStringListPutEvent;
     FOnInfoLoss: TSynInfoLossEvent;
-    function GetTextWidth(Index: Integer): Integer;
-    function GetMaxWidth: Integer;
     function GetRange(Index: Integer): TSynEditRange;
     procedure Grow;
     procedure InsertItem(Index: Integer; const S: string);
@@ -120,6 +118,9 @@ type
     function GetFileFormat: TSynEditFileFormat;
     procedure SetFileFormat(const Value: TSynEditFileFormat);
   protected
+    // The 2 changes are key for scrollbar to correctly compute width for hooked editor string list
+    function GetTextWidth(Index: Integer): Integer; virtual;
+    function GetMaxWidth: Integer; virtual;
     procedure Changed; virtual;
     procedure Changing; virtual;
     // TStrings overriden protected methods
