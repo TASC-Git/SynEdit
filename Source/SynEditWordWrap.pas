@@ -92,7 +92,9 @@ uses
   Winapi.D2D1,
   System.RTLConsts,
   System.Math,
+{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}
   System.Threading,
+{$IFEND}
   SynUnicode,
   SynEditMiscProcs,
   SynDWrite;
@@ -318,6 +320,9 @@ end;
 
 procedure TSynWordWrapPlugin.WrapLines;
 var
+{$IF (COMPILERVERSION <= 29) AND DEFINED(PACKAGE)}
+  I: TSynNativeInt;
+{$IFEND}
   cLine: TSynNativeInt;
   RowLengths: TArray<TArray<NativeInt>>;
 begin
@@ -330,10 +335,14 @@ begin
     Exit;
 
   SetLength(RowLengths, FEditor.Lines.CountNative);
+{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}
   TParallel.&For(0, FEditor.Lines.CountNative - 1, procedure(I: TSynNativeInt)
+{$ELSE}
+  for I := 0 to FEditor.Lines.CountNative - 1 do
+{$IFEND}
   begin
     WrapLine(I, RowLengths[I]);
-  end);
+  end{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}){$IFEND};
 
   for cLine := 0 to FEditor.Lines.CountNative - 1 do
   begin

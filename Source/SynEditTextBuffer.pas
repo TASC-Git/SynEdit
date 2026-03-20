@@ -192,8 +192,10 @@ type
 
 implementation
 uses
-  System.Math,
-  System.Threading;
+{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}
+  System.Threading,
+{$IFEND}
+  System.Math;
 
 resourcestring
   SListIndexOutOfBounds = 'Invalid stringlist index %d';
@@ -418,6 +420,12 @@ begin
 end;
 
 function TSynEditStringList.GetMaxWidth: TSynNativeInt;
+{$IF (COMPILERVERSION <= 29) AND DEFINED(PACKAGE)}
+var
+  I: TSynNativeInt;
+  LMaxW: TSynNativeInt;
+  PRec: PSynEditStringRec;
+{$IFEND}
 begin
   if FMaxWidth > 0 then
     Result := FMaxWidth
@@ -425,10 +433,14 @@ begin
     Result := 0
   else
   begin
+{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}
     TParallel.&For(0, FCount - 1, procedure(I: TSynNativeInt)
     var
       LMaxW: TSynNativeInt;
       PRec: PSynEditStringRec;
+{$ELSE}
+    for I := 0 to FCount - 1 do
+{$IFEND}
     begin
       PRec := @FList[I];
       if sfTextWidthUnknown in PRec^.FFlags then
@@ -441,7 +453,7 @@ begin
         if PRec^.FTextWidth <= LMaxW then
           Break;
       until AtomicCmpExchange(FMaxWidth, PRec^.FTextWidth, LMaxW) = LMaxW;
-    end);
+    end{$IF (COMPILERVERSION > 29) OR (NOT DEFINED(PACKAGE))}){$IFEND};
     Result := Max(FMaxWidth, 0);
   end;
 end;
