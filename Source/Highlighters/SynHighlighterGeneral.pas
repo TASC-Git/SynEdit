@@ -586,6 +586,8 @@ begin
   else
     if IsStringDelim(fLine[Run]) then
       StringProc
+    else if IsIdentChar(fLine[Run]) then
+      IdentProc
     else
       case fLine[Run] of
         '#': AsciiCharProc;
