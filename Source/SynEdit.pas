@@ -597,11 +597,7 @@ type
     procedure Updated; override;
     procedure UpdateMouseCursor; virtual;
     procedure CalcTextAreaWidth;
-{$IF COMPILERVERSION <= 30}
-    procedure ChangeScale(M, D: Integer); override;
-{$ELSE}
-    procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
-{$ENDIF}
+    procedure ChangeScale(M, D: Integer{$IF COMPILERVERSION > 30}; isDpiChange: Boolean{$IFEND}); override;
     procedure DoBlockIndent;
     procedure DoBlockUnindent;
     procedure DoContextPopup(MousePos: TPoint; var Handled: Boolean); override;
@@ -5675,16 +5671,10 @@ begin
   FOrigUndoRedo.OnModifiedChanged(Sender);
 end;
 
-{$IF COMPILERVERSION <= 30}
-procedure TCustomSynEdit.ChangeScale(M, D: Integer);
-{$ELSE}
-procedure TCustomSynEdit.ChangeScale(M, D: Integer; isDpiChange: Boolean);
-{$ENDIF}
+procedure TCustomSynEdit.ChangeScale(M, D: Integer{$IF COMPILERVERSION > 30}; isDpiChange: Boolean{$IFEND});
 begin
-{$IF COMPILERVERSION >= 31}
-  if isDpiChange then
+  if {$IF COMPILERVERSION <= 30}M <> D{$ELSE}isDpiChange{$IFEND} then
   begin
-{$ENDIF}
     BeginUpdate;
     try
       fExtraLineSpacing := MulDiv(fExtraLineSpacing, M, D);
@@ -5693,21 +5683,12 @@ begin
       fGutter.ChangeScale(M,D);
       FBookmarkOptions.ChangeScale(M, D);
       fWordWrapGlyph.ChangeScale(M, D);
-{$IF COMPILERVERSION <= 35}
-      Font.PixelsPerInch := M;
-      Font.Height := MulDiv(Font.Height, M, D);
-{$ELSE}
-      Font.ChangeScale(M, D, isDpiChange);
-{$IFEND}
+{$IF COMPILERVERSION <= 35}Font.PixelsPerInch := M;{$IFEND}
     finally
       EndUpdate;
     end;
-{$IF COMPILERVERSION <= 30}
-  inherited ChangeScale(M, D);
-{$ELSE}
   end;
-  inherited ChangeScale(M, D, isDpiChange);
-{$ENDIF}
+  inherited ChangeScale(M, D{$IF COMPILERVERSION > 30}, isDpiChange{$IFEND});
 end;
 
 procedure TCustomSynEdit.UnHookTextBuffer;
