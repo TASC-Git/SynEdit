@@ -40,6 +40,7 @@ uses
   SynEdit,
   SynEditTypes,
   SynEditRegexSearch,
+  SynFunc,
   Classes;
 
 type
@@ -50,16 +51,16 @@ type
     function GetPattern: UnicodeString; override;
     procedure SetPattern(const Value: UnicodeString); override;
     procedure SetOptions(const Value: TSynSearchOptions); override;
-    function GetLength(Index: Integer): Integer; override;
-    function GetResult(Index: Integer): Integer; override;
-    function GetResultCount: Integer; override;
+    function GetLength(Index: TSynNativeInt): TSynNativeInt; override;
+    function GetResult(Index: TSynNativeInt): TSynNativeInt; override;
+    function GetResultCount: TSynNativeInt; override;
     // Converts the Wildcard to a regular expression
     function WildCardToRegExpr(AWildCard: UnicodeString): UnicodeString;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    function FindAll(const NewText: string; StartChar: Integer = 1;
-      EndChar: Integer = 0): Integer; override;
+    function FindAll(const NewText: string; StartChar: TSynNativeInt = 1;
+      EndChar: TSynNativeInt = 0): TSynNativeInt; override;
     function Replace(const aOccurrence, aReplacement: UnicodeString): UnicodeString; override;
   end;
 
@@ -82,7 +83,7 @@ begin
 end;
 
 function TSynEditWildcardSearch.FindAll(const NewText: string;
-  StartChar: Integer = 1; EndChar: Integer = 0): Integer;
+  StartChar: TSynNativeInt = 1; EndChar: TSynNativeInt = 0): TSynNativeInt;
 begin
   Result := inherited FindAll(NewText, StartChar, EndChar);
 end;
@@ -92,7 +93,7 @@ begin
   Result := inherited Replace(aOccurrence, aReplacement);
 end;   
 
-function TSynEditWildcardSearch.GetLength(Index: Integer): Integer;
+function TSynEditWildcardSearch.GetLength(Index: TSynNativeInt): TSynNativeInt;
 begin
   Result := inherited GetLength(Index);
 end;
@@ -102,12 +103,12 @@ begin
   Result := fPattern;
 end;
 
-function TSynEditWildcardSearch.GetResult(Index: Integer): Integer;
+function TSynEditWildcardSearch.GetResult(Index: TSynNativeInt): TSynNativeInt;
 begin
   Result := inherited GetResult(Index);
 end;
 
-function TSynEditWildcardSearch.GetResultCount: Integer;
+function TSynEditWildcardSearch.GetResultCount: TSynNativeInt;
 begin
   Result := inherited GetResultCount;
 end;
