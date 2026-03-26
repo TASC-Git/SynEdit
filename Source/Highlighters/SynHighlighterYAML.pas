@@ -33,8 +33,10 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  SynEditCodeFolding,
   Vcl.Graphics,
-  SynEditHighlighter;
+  SynEditHighlighter,
+  SynFunc;
 
 //State constants
 const
@@ -66,12 +68,12 @@ type
   TProcTableProc = procedure of object;
 
   PIdentFuncTableFunc = ^TIdentFuncTableFunc;
-  TIdentFuncTableFunc = function (Index: Integer): TtkTokenKind of object;
+  TIdentFuncTableFunc = function (Index: TSynNativeInt): TtkTokenKind of object;
 
 type
-  TSynYAMLSyn = class(TSynCustomHighlighter)
+  TSynYAMLSyn = class(TSynCustomCodeFoldingHighlighter)
   private
-    fRange: LongWord;
+    fRange: Longword;
     fTokenID: TtkTokenKind;
     fCommentAttri: TSynHighlighterAttributes;
     fDocDelimiterAttri: TSynHighlighterAttributes;
@@ -107,10 +109,11 @@ type
   protected
     function GetSampleSource: UnicodeString; override;
     function IsFilterStored: Boolean; override;
-    procedure DoSetLine(const Value: UnicodeString; LineNumber: Integer); override;
+    procedure DoSetLine(const Value: UnicodeString; LineNumber: TSynNativeInt); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    class function GetCapabilities: TSynHighlighterCapabilities; override;
     class function GetFriendlyLanguageName: UnicodeString; override;
     class function GetLanguageName: string; override;
     function GetRange: Pointer; override;
@@ -120,9 +123,12 @@ type
     function GetEol: Boolean; override;
     function GetTokenID: TtkTokenKind;
     function GetTokenAttribute: TSynHighlighterAttributes; override;
-    function GetTokenKind: Integer; override;
+    function GetTokenKind: TSynNativeInt; override;
     function IsIdentChar(AChar: WideChar): Boolean; override;
     procedure Next; override;
+    procedure InitFoldRanges(FoldRanges : TSynFoldRanges); override;
+    procedure ScanForFoldRanges(FoldRanges: TSynFoldRanges;
+      LinesToScan: TStrings; FromLine: TSynNativeInt; ToLine: TSynNativeInt); override;
   published
     property CommentAttri: TSynHighlighterAttributes read fCommentAttri write fCommentAttri;
     property DocDelimiterAttri: TSynHighlighterAttributes read fDocDelimiterAttri write fDocDelimiterAttri;
@@ -227,12 +233,12 @@ begin
     Inc(Run);
 end;
 
-procedure TSynYAMLSyn.DoSetLine(const Value: UnicodeString; LineNumber: Integer);
+procedure TSynYAMLSyn.DoSetLine(const Value: UnicodeString; LineNumber: TSynNativeInt);
 const
   sDocStart: UnicodeString = '---';
   sDocEnd: UnicodeString = '...';
 var
-  NewIndent: Integer;
+  NewIndent: TSynNativeInt;
 begin
   inherited;
   NewIndent := LeftSpaces(fLineStr, False);
@@ -242,23 +248,23 @@ begin
 
   if fLine^ = '%' then begin
     LongRec(fRange).Lo := rsDirective;
-    LongRec(fRange).Hi := NewIndent;
+    LongRec(fRange).Hi := ToWord(NewIndent);
   end else if FLineStr.StartsWith(sDocStart) or FLineStr.StartsWith(sDocEnd) then begin
     LongRec(fRange).Lo := rsDocDelimiter;
-    LongRec(fRange).Hi := NewIndent;
+    LongRec(fRange).Hi := ToWord(NewIndent);
   end else if (LongRec(fRange).Lo = rsLiteralStart) then begin
     LongRec(fRange).Lo := rsLiteral;
-    LongRec(fRange).Hi := NewIndent;
+    LongRec(fRange).Hi := ToWord(NewIndent);
   end else if (LongRec(fRange).Lo = rsLiteral) then begin
     if (LongRec(fRange).Hi > NewIndent) then begin
       LongRec(fRange).Lo := rsUnknown;
-      LongRec(fRange).Hi := NewIndent;
+      LongRec(fRange).Hi := ToWord(NewIndent);
     end else
-      LongRec(fRange).Hi := Min(LongRec(fRange).Hi, NewIndent);
+      LongRec(fRange).Hi := ToWord(Min(LongRec(fRange).Hi, NewIndent));
   end else begin
     if not (LongRec(fRange).Lo in [rsString1, rsString2]) then
       LongRec(fRange).Lo := rsUnknown;
-    LongRec(fRange).Hi := NewIndent;
+    LongRec(fRange).Hi := ToWord(NewIndent);
   end;
 end;
 
@@ -408,7 +414,7 @@ end;
 
 procedure TSynYAMLSyn.ValueProc;
 var
-  Start: Integer;
+  Start: TSynNativeInt;
   Val:  UnicodeString;
   FloatVal: Extended;
 begin
@@ -518,6 +524,11 @@ begin
   inherited;
 end;
 
+class function TSynYAMLSyn.GetCapabilities: TSynHighlighterCapabilities;
+begin
+  Result := inherited GetCapabilities + [hcStructureHighlight];
+end;
+
 function TSynYAMLSyn.GetDefaultAttribute(Index: Integer): TSynHighLighterAttributes;
 begin
   case Index of
@@ -565,7 +576,7 @@ begin
   end;
 end;
 
-function TSynYAMLSyn.GetTokenKind: Integer;
+function TSynYAMLSyn.GetTokenKind: TSynNativeInt;
 begin
   Result := Ord(fTokenId);
 end;
@@ -633,9 +644,77 @@ begin
   LongRec(fRange).Lo := rsUnknown;
 end;
 
+procedure TSynYAMLSyn.InitFoldRanges(FoldRanges: TSynFoldRanges);
+begin
+  inherited;
+  FoldRanges.CodeFoldingMode := cfmIndentation;
+end;
+
+procedure TSynYAMLSyn.ScanForFoldRanges(FoldRanges: TSynFoldRanges;
+  LinesToScan: TStrings; FromLine, ToLine: TSynNativeInt);
+
+  function LeftSpaces(const CurLine: string; TabW: TSynNativeInt): TSynNativeInt;
+  var
+    p: PWideChar;
+  begin
+    p := PWideChar(CurLine);
+    if Assigned(p) then begin
+      Result := 0;
+      while (p^ >= #1) and (p^ <= #32) do begin
+        if p^ = #9 then
+          Inc(Result, TabW)
+        else
+          Inc(Result);
+        Inc(p);
+      end;
+    end else
+      Result := 0;
+  end;
+
+  function StripComments(const Line: string): string;
+  var
+    Index: TSynNativeInt;
+  begin
+    Index := Pos('#', Line);
+    if Index = 0 then
+      Result := Line
+    else
+      Result := Copy(Line, 1, Index - 1);
+  end;
+
+var
+  CurLine: string;
+  TrimmedLine: string;
+  Line: TSynNativeInt;
+  Indent: TSynNativeInt;
+  FoldType: TSynNativeInt;
+begin
+  for Line := FromLine to ToLine do begin
+    CurLine := LinesToScan.ItemsNative[Line];
+    TrimmedLine := Trim(StripComments(CurLine));
+
+    // skip empty lines
+    if TrimmedLine = '' then begin
+      FoldRanges.NoFoldInfo(Line + 1);
+      Continue;
+    end;
+
+    Indent := LeftSpaces(CurLine, TabWidth(LinesToScan));
+
+    // find fold openers
+    if TrimmedLine[Length(TrimmedLine)] = ':' then begin
+      FoldType := 1;
+      FoldRanges.StartFoldRange(Line + 1, FoldType, Indent);
+      Continue;
+    end;
+
+    FoldRanges.StopFoldRange(Line + 1, 1, Indent)
+  end;
+end;
+
 procedure TSynYAMLSyn.SetRange(Value: Pointer);
 begin
-  fRange := LongWord(Value);
+  fRange := Longword(NativeUInt(Value));
 end;
 
 function TSynYAMLSyn.GetRange: Pointer;

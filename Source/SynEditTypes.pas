@@ -47,7 +47,8 @@ uses
   System.Math,
   Vcl.Controls,
   System.SysUtils,
-  System.Classes;
+  System.Classes,
+  SynFunc;
 
 const
   DefaultBrackets = '()[]{}';
@@ -61,6 +62,57 @@ var
 type
   ESynError = class(Exception);
 
+  TSynEditorOption = (
+    eoAutoIndent,              //Will indent the caret on new lines with the same amount of leading white space as the preceding line
+    eoDragDropEditing,         //Allows you to select a block of text and drag it within the document to another location
+    eoDropFiles,               //Allows the editor accept OLE file drops
+    eoEnhanceHomeKey,          //enhances home key positioning, similar to visual studio
+    eoEnhanceEndKey,           //enhances End key positioning, similar to JDeveloper
+    eoGroupUndo,               //When undoing/redoing actions, handle all continous changes of the same kind in one call instead undoing/redoing each command separately
+    eoKeepCaretX,              //When moving through lines w/o Cursor Past EOL, keeps the X position of the cursor
+    eoNoCaret,                 //Makes it so the caret is never visible
+    eoNoSelection,             //Disables selecting text
+    eoRightMouseMovesCursor,   //When clicking with the right mouse for a popup menu, move the cursor to that location
+    eoSmartTabDelete,          //similar to Smart Tabs, but when you delete characters
+    eoSmartTabs,               //When tabbing, the cursor will go to the next non-white space character of the previous line
+    eoSpecialLineDefaultFg,    //disables the foreground text color override when using the OnSpecialLineColor event
+    eoTabIndent,               //When active <Tab> and <Shift><Tab> act as block indent, unindent when text is selected
+    eoTabsToSpaces,            //Converts a tab character to a specified number of space characters
+    eoTrimTrailingSpaces,      //Spaces at the end of lines will be trimmed and not saved
+    eoShowLigatures,           //Shows font ligatures, by default it is disabled
+    eoCopyPlainText,           //Do not include additional clipboard formats when you copy to Clipboard or drag text
+    eoNoHTMLBackground,        //Ignore SynEdit background color when copying in HTML format
+    eoWrapWithRightEdge,       //WordWrap with RightEdge position instead of the whole text area
+    eoBracketsHighlight,       //Enable bracket highlighting
+    eoAccessibility,           //Enable accessibility support
+    eoCompleteBrackets,        //When an opening bracket is entered complete the matching one
+    eoCompleteQuotes           //When an quote char (" ') is entered add a second one
+    );
+  TSynEditorOptions = set of TSynEditorOption;
+
+  TSynEditorScrollOption = (
+    eoDisableScrollArrows,     //Disables the scroll bar arrow buttons when you can't scroll in that direction any more
+    eoHalfPageScroll,          //When scrolling with page-up and page-down commands, only scroll a half page at a time
+    eoHideShowScrollbars,      //if enabled, then the scrollbars will only show when necessary.
+    eoScrollByOneLess,         //Forces scrolling to be one less
+    eoScrollHintFollows,       //The scroll hint follows the mouse when scrolling vertically
+    eoScrollPastEof,           //Allows the cursor to go past the end of file marker
+    eoScrollPastEol,           //Allows the cursor to go past the last character into the white space at the end of a line
+    eoShowScrollHint           //Shows a hint of the visible line numbers when scrolling vertically
+    );
+  TSynEditorScrollOptions = set of TSynEditorScrollOption;
+
+
+const
+  SYNEDIT_DEFAULT_OPTIONS = [
+    eoAutoIndent, eoDragDropEditing, eoKeepCaretX,
+    eoEnhanceHomeKey, eoEnhanceEndKey, eoTabIndent, eoTabsToSpaces,
+    eoSmartTabDelete, eoGroupUndo, eoDropFiles, eoShowLigatures,
+    eoBracketsHighlight, eoAccessibility, eoCompleteBrackets, eoCompleteQuotes];
+  SYNEDIT_DEFAULT_SCROLLOPTIONS =
+    [eoHideShowScrollbars, eoDisableScrollArrows, eoShowScrollHint];
+
+type
   TSynFlowControl = (fcNone, fcContinue, fcBreak, fcExit);
 
   // DOS: CRLF, UNIX: LF, Mac: CR, Unicode: LINE SEPARATOR
@@ -78,12 +130,17 @@ type
     var Handled: Boolean; var Command: TSynEditorCommand; var AChar: WideChar;
     Data: pointer; HandlerData: pointer) of object;
 
+  TSynEditCaretType = (ctVerticalLine, ctHorizontalLine, ctHalfBlock, ctBlock);
+
+  TSynSpecialChars = (scWhitespace, scControlChars, scEOL);
+  TSynVisibleSpecialChars = set of TSynSpecialChars;
+
   TSynInfoLossEvent = procedure (var Encoding: TEncoding; Cancel: Boolean) of object;
 
   TBufferCoord = record
     // Char and Line are 1-based
-    Char: Integer;
-    Line: Integer;
+    Char: TSynNativeInt;
+    Line: TSynNativeInt;
     function ToString(ShortForm: Boolean = True): string;
     class operator Equal(a, b: TBufferCoord): Boolean;
     class operator NotEqual(a, b: TBufferCoord): Boolean;
@@ -95,11 +152,12 @@ type
     class function Max(a, b: TBufferCoord): TBufferCoord; static;
     class function Invalid: TBufferCoord; static;
     function IsValid: Boolean;
+    procedure Swap(var Other: TBufferCoord);
   end;
 
   TDisplayCoord = record
-    Column: Integer;
-    Row: Integer;
+    Column: TSynNativeInt;
+    Row: TSynNativeInt;
     class operator Equal(a, b: TDisplayCoord): Boolean;
     class operator NotEqual(a, b: TDisplayCoord): Boolean;
     class operator LessThan(a, b: TDisplayCoord): Boolean;
@@ -115,7 +173,7 @@ type
     Start: TBufferCoord;
     Stop: TBufferCoord;
     CaretAtEOL: Boolean;  // used by wordwrap
-    LastPosX: Integer;    // in pixels. Used in vertical movements
+    LastPosX: TSynNativeInt;    // in pixels. Used in vertical movements
     procedure Normalize;
     function Normalized: TSynSelection;
     function IsEmpty: Boolean;
@@ -123,7 +181,7 @@ type
     function Intersects(const Other: TSynSelection): Boolean;
     function Contains(const BC: TBufferCoord): Boolean;
     constructor Create(const ACaret, AStart, AStop: TBufferCoord; ACaretAtEOL:
-        Boolean = False; ALastPosX: Integer = 0);
+        Boolean = False; ALastPosX: TSynNativeInt = 0);
     class operator Equal(a, b: TSynSelection): Boolean;
     class operator NotEqual(a, b: TSynSelection): Boolean;
     class function Invalid: TSynSelection; static;
@@ -132,26 +190,17 @@ type
 
   TSynSelectionArray = TArray<TSynSelection>;
 
-  (*  Helper methods for TControl - for backwward compatibility *)
-  {$IF CompilerVersion <= 32}
-  TControlHelper = class helper for TControl
-  public
-    function CurrentPPI: Integer;
-    function FCurrentPPI: Integer;
-  end;
-  {$ENDIF}
-
-function DisplayCoord(AColumn, ARow: Integer): TDisplayCoord;
-function BufferCoord(AChar, ALine: Integer): TBufferCoord;
+function DisplayCoord(AColumn, ARow: TSynNativeInt): TDisplayCoord;
+function BufferCoord(AChar, ALine: TSynNativeInt): TBufferCoord;
 
 type
 { *************************** For Carets **********************************}
 
 TCaretShape = record
-  Width: Integer;
-  Height: Integer;
+  Width: TSynNativeInt;
+  Height: TSynNativeInt;
   Offset: TPoint;
-  constructor Create(AWidth, AHeight: Integer; AOffset: TPoint);
+  constructor Create(AWidth, AHeight: TSynNativeInt; AOffset: TPoint);
 end;
 
 
@@ -175,17 +224,18 @@ end;
     // conversion methods
     function BufferToDisplayPos(const aPos: TBufferCoord): TDisplayCoord;
     function DisplayToBufferPos(const aPos: TDisplayCoord): TBufferCoord;
-    function RowCount: Integer;
-    function GetRowLength(aRow: Integer): Integer;
+    function GetRowLength(aRow: TSynNativeInt): TSynNativeInt;
+    function RowCount: TSynNativeInt;
+    function RowToLine(aRow: TSynNativeInt): TSynNativeInt;
+    function LineToRow(aLine: TSynNativeInt): TSynNativeInt;
     // plugin notifications
-    function LinesInserted(aIndex: Integer; aCount: Integer): Integer;
-    function LinesDeleted(aIndex: Integer; aCount: Integer): Integer;
-    function LinePut(aIndex: Integer; const OldLine: string): Integer;
+    function LinesInserted(aIndex: TSynNativeInt; aCount: TSynNativeInt): TSynNativeInt;
+    function LinesDeleted(aIndex: TSynNativeInt; aCount: TSynNativeInt): TSynNativeInt;
+    function LinePut(aIndex: TSynNativeInt; const OldLine: string): TSynNativeInt;
     // font or size change
     procedure DisplayChanged;
-    // pretty clear, heh?
     procedure Reset;
-    property RowLength[RowIndex: Integer]: Integer read GetRowLength;
+    property RowLength[RowIndex: TSynNativeInt]: TSynNativeInt read GetRowLength;
   end;
 
 { ************************* For Undo Redo ********************************}
@@ -208,7 +258,7 @@ end;
     ChangeStartPos: TBufferCoord;
     ChangeEndPos: TBufferCoord;
     ChangeStr: string;
-    ChangeNumber: Integer;
+    ChangeNumber: TSynNativeInt;
     ChangeReason: TSynChangeReason;
     // the following undo item cannot be grouped with this one  when undoing
     // don't group the previous one with this one when redoing
@@ -218,14 +268,14 @@ end;
   { Handles undo/redo and manages Modified status }
   ISynEditUndo =  interface
     function GetModified: Boolean;
-    function GetMaxUndoActions: Integer;
+    function GetMaxUndoActions: TSynNativeInt;
     function GetCanUndo: Boolean;
     function GetCanRedo: Boolean;
     function GetFullUndoImposible: Boolean;
     function GetOnModifiedChanged: TNotifyEvent;
     function GetInsideUndoRedo: Boolean;
     procedure SetModified(const Value: Boolean);
-    procedure SetMaxUndoActions(const Value: Integer);
+    procedure SetMaxUndoActions(const Value: TSynNativeInt);
     procedure SetGroupUndo(const Value: Boolean);
     procedure SetOnModifiedChanged(const Event: TNotifyEvent);
     procedure SetCommandProcessed(const Command: TSynEditorCommand);
@@ -260,7 +310,7 @@ end;
     { MaxUndoActions zero or less indicates unlimited undo. It grows as needed.
       If it is a positive number, when the limit is reached 1/4 of the
       Undo history is discarded to make space for following undo actions }
-    property MaxUndoActions: Integer read GetMaxUndoActions
+    property MaxUndoActions: TSynNativeInt read GetMaxUndoActions
       write SetMaxUndoActions;
     property FullUndoImpossible: Boolean read GetFullUndoImposible;
     property OnModifiedChanged: TNotifyEvent read GetOnModifiedChanged
@@ -276,13 +326,13 @@ Uses
   SynEditStrConst,
   SynUnicode;
 
-function DisplayCoord(AColumn, ARow: Integer): TDisplayCoord;
+function DisplayCoord(AColumn, ARow: TSynNativeInt): TDisplayCoord;
 begin
   Result.Column := AColumn;
   Result.Row := ARow;
 end;
 
-function BufferCoord(AChar, ALine: Integer): TBufferCoord;
+function BufferCoord(AChar, ALine: TSynNativeInt): TBufferCoord;
 begin
   Result.Char := AChar;
   Result.Line := ALine;
@@ -355,6 +405,15 @@ begin
   Result := (a.Char <> b.Char) or (a.Line <> b.Line);
 end;
 
+procedure TBufferCoord.Swap(var Other: TBufferCoord);
+var
+  Temp: TBufferCoord;
+begin
+  Temp := Other;
+  Other := Self;
+  Self := Temp;
+end;
+
 function TBufferCoord.ToString(ShortForm: Boolean = True): string;
 begin
   if ShortForm then
@@ -419,22 +478,6 @@ begin
   Result := (a.Row <> b.Row) or (a.Column <> b.Column);
 end;
 
-{$IF CompilerVersion <= 32}
-{ TControlHelper }
-
-function TControlHelper.CurrentPPI: Integer;
-begin
-  Result := Screen.PixelsPerInch;
-end;
-
-function TControlHelper.FCurrentPPI: Integer;
-begin
-  Result := Screen.PixelsPerInch;
-end;
-{$ENDIF}
-
-
-
 { TSynSelection }
 
 function TSynSelection.Contains(const BC: TBufferCoord): Boolean;
@@ -444,7 +487,7 @@ begin
 end;
 
 constructor TSynSelection.Create(const ACaret, AStart, AStop: TBufferCoord;
-    ACaretAtEOL: Boolean = False; ALastPosX: Integer = 0);
+    ACaretAtEOL: Boolean = False; ALastPosX: TSynNativeInt = 0);
 begin
   Caret := ACaret;
   Start := AStart;
@@ -496,10 +539,12 @@ begin
 end;
 
 procedure TSynSelection.Normalize;
+var
+  Temp: TBufferCoord;
 begin
   if Start > Stop then
   begin
-    var Temp := Start;
+    Temp := Start;
     Start := Stop;
     Stop := Temp;
     Caret := Stop;
@@ -519,7 +564,7 @@ end;
 
 { TCaretShape }
 
-constructor TCaretShape.Create(AWidth, AHeight: Integer; AOffset: TPoint);
+constructor TCaretShape.Create(AWidth, AHeight: TSynNativeInt; AOffset: TPoint);
 begin
   Width := AWidth;
   Height := AHeight;

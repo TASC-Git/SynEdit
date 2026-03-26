@@ -86,6 +86,7 @@ uses
   SynHighlighterJScript,
   SynHighlighterJSON,
   SynHighlighterKix,
+  SynHighlighterMarkdown,
   SynHighlighterModelica,
   SynHighlighterM3,   
   SynHighlighterPas,
@@ -117,7 +118,8 @@ uses
   SynHighlighterOmni,
   SynSpellCheck,
   SynURIOpener,
-  SynEditActionsResource;
+  SynEditActionsResource,
+  SynHighlighterDelphi;
 
 procedure Register;
 
@@ -158,10 +160,10 @@ begin
   RegisterComponents(SYNS_HighlightersPage, [
     //classic
     TSynCppSyn, TSynEiffelSyn, TSynFortranSyn, TSynGeneralSyn, TSynJavaSyn,
-    TSynM3Syn, TSynPasSyn, TSynVBSyn, TSynCobolSyn, TSynCSSyn, TSynOmniSyn,
+    TSynM3Syn, TSynPasSyn, TSynDelphiSyn, TSynVBSyn, TSynCobolSyn, TSynCSSyn, TSynOmniSyn,
     // internet
-    TSynCssSyn, TSynHTMLSyn, TSynJScriptSyn, TSynPHPSyn, TSynVBScriptSyn,
-    TSynXMLSyn, TSynJSONSyn, TSynVrml97Syn,
+    TSynCssSyn, TSynHTMLSyn, TSynJScriptSyn, TSynMarkdownSyn, TSynPHPSyn,
+    TSynVBScriptSyn, TSynXMLSyn, TSynJSONSyn, TSynVrml97Syn,
     //interpreted
     TSynAWKSyn, TSynBATSyn,
     TSynDWSSyn,

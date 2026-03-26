@@ -35,7 +35,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
-  frmMain, ActnList, Menus, uEditAppIntfs, StdActns, ComCtrls;
+  ActnList, Menus, uEditAppIntfs, StdActns, ComCtrls, System.Actions, EditAppMain;
 
 type
   TMDIMainForm = class(TMainForm)

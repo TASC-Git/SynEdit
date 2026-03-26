@@ -22,15 +22,19 @@ replace them with the notice and other provisions required by the GPL.
 If you do not delete the provisions above, a recipient may use your version
 of this file under either the MPL or the GPL.
 -------------------------------------------------------------------------------}
-unit frmMain;
+unit SearchReplaceMain;
+
 {$I SynEdit.inc}
+
 interface
+
 uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
   ComCtrls, ToolWin, ImgList, ActnList, SynEdit, SynEditRegexSearch,
   SynEditMiscClasses, SynEditSearch, SynUnicode, System.Actions,
   System.ImageList, Vcl.VirtualImageList, Vcl.BaseImageCollection,
   Vcl.ImageCollection, SynEditTypes;
+
 type
   TSearchReplaceDemoForm = class(TForm)
     ActionFileOpen: TAction;
@@ -62,7 +66,7 @@ type
     procedure actSearchUpdate(Sender: TObject);
     procedure ActionSearchReplaceUpdate(Sender: TObject);
     procedure SynEditorReplaceText(Sender: TObject; const ASearch,
-      AReplace: string; Line, Column: Integer;
+      AReplace: string; Line, Column: NativeInt;
       var Action: TSynReplaceAction);
     procedure FormCreate(Sender: TObject);
     procedure SynEditorMouseDown(Sender: TObject; Button: TMouseButton; Shift:
@@ -73,6 +77,7 @@ type
     procedure DoSearchReplaceText(AReplace: Boolean; ABackwards: Boolean);
     procedure ShowSearchReplaceDialog(AReplace: Boolean);
   end;
+
 var
   SearchReplaceDemoForm: TSearchReplaceDemoForm;
 
