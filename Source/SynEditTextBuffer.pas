@@ -107,8 +107,10 @@ type
     FOnPut: TStringListPutEvent;
     FOnInfoLoss: TSynInfoLossEvent;
     function GetCapacityNative: TSynNativeInt;
-    function GetTextWidth(Index: TSynNativeInt): TSynNativeInt;
-    function GetMaxWidth: TSynNativeInt;
+  protected // DQ Required change for Virtual List support
+    function GetTextWidth(Index: TSynNativeInt): TSynNativeInt; virtual;
+    function GetMaxWidth: TSynNativeInt; virtual;
+  strict private
     function GetRange(Index: TSynNativeInt): TSynEditRange;
     procedure Grow;
     procedure InsertItem(Index: TSynNativeInt; const S: string);
