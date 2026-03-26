@@ -12,7 +12,7 @@
   The Original Code is based on parts of mwCustomEdit.pas by Martin Waldenburg,
   part of the mwEdit component suite.
   Portions created by Martin Waldenburg are Copyright (C) 1998 Martin Waldenburg.
-  Unicode translation by Maël Hörz.
+  Unicode translation by Maï¿½l Hï¿½rz.
   All Rights Reserved.
 
   Contributors to the SynEdit and mwEdit projects are listed in the
@@ -107,22 +107,21 @@ type
     FOnPut: TStringListPutEvent;
     FOnInfoLoss: TSynInfoLossEvent;
     function GetCapacityNative: TSynNativeInt;
-  protected // DQ Required change for Virtual List support
+  strict protected // DQ Required change for Virtual List support
     function GetTextWidth(Index: TSynNativeInt): TSynNativeInt; virtual;
     function GetMaxWidth: TSynNativeInt; virtual;
-  strict private
-    function GetRange(Index: TSynNativeInt): TSynEditRange;
+    function GetRange(Index: TSynNativeInt): TSynEditRange; virtual;
     procedure Grow;
     procedure InsertItem(Index: TSynNativeInt; const S: string);
-    procedure PutRange(Index: TSynNativeInt; ARange: TSynEditRange);
-    function GetChangeFlags(Index: TSynNativeInt): TSynLineChangeFlags;
-    function GetCountNative: TSynNativeInt;
-    procedure SetChangeFlags(Index: TSynNativeInt; const Value: TSynLineChangeFlags);
+    procedure PutRange(Index: TSynNativeInt; ARange: TSynEditRange); virtual;
+    function GetChangeFlags(Index: TSynNativeInt): TSynLineChangeFlags; virtual;
+    function GetCountNative: TSynNativeInt; virtual;
+    procedure SetChangeFlags(Index: TSynNativeInt; const Value: TSynLineChangeFlags); virtual;
     function GetFileFormat: TSynEditFileFormat;
-    function GetNative(Index: TSynNativeInt): string;
-    function GetObjectNative(Index: TSynNativeInt): TObject;
-    procedure PutNative(Index: TSynNativeInt; const S: string);
-    procedure PutObjectNative(AIndex: TSynNativeInt; const AValue: TObject);
+    function GetNative(Index: TSynNativeInt): string; virtual;
+    function GetObjectNative(Index: TSynNativeInt): TObject; virtual;
+    procedure PutNative(Index: TSynNativeInt; const S: string); virtual;
+    procedure PutObjectNative(AIndex: TSynNativeInt; const AValue: TObject); virtual;
     procedure SetFileFormat(const Value: TSynEditFileFormat);
     procedure SetCapacityNative(const AValue: TSynNativeInt);
   strict protected
@@ -146,7 +145,7 @@ type
     procedure Clear; override;
     procedure Delete(Index: Integer); override;
     procedure DeleteNative(Index: TSynNativeInt);
-    procedure DeleteLines(Index, NumLines: TSynNativeInt);
+    procedure DeleteLines(Index, NumLines: TSynNativeInt); virtual;
     procedure Insert(Index: Integer; const S: string); override;
     procedure InsertNative(Index: TSynNativeInt; const S: string);
     procedure LoadFromStream(Stream: TStream; Encoding: TEncoding); override;
@@ -156,12 +155,12 @@ type
     constructor Create(TextWidthFunc: TTextWidthFunc);
     destructor Destroy; override;
     procedure InsertStrings(Index: TSynNativeInt; Strings: TArray<string>;
-      FromIndex: TSynNativeInt = 0);
-    procedure InsertText(Index: TSynNativeInt; NewText: string);
+      FromIndex: TSynNativeInt = 0); virtual;
+    procedure InsertText(Index: TSynNativeInt; NewText: string); virtual;
     function GetSeparatedText(Separators: string): string;
     procedure ResetMaxWidth;
-    function LineCharLength(Index: TSynNativeInt): Integer;
-    function LineCharIndex(Index: TSynNativeInt): TSynNativeInt;
+    function LineCharLength(Index: TSynNativeInt): Integer; virtual;
+    function LineCharIndex(Index: TSynNativeInt): TSynNativeInt; virtual;
     procedure SetTextAndFileFormat(const Value: string);
 
     property CapacityNative: TSynNativeInt read GetCapacityNative write SetCapacityNative;
