@@ -132,7 +132,7 @@ function HasFormat(DataObject: IDataObject; Format: TClipFormat):Boolean;
 var
   FormatEnumerator: IEnumFormatEtc;
   FormatEtc: TFormatEtc;
-  Returned: NativeInt;
+  Returned: Longint;
 begin
   Result := False;
   if (DataObject.EnumFormatEtc (DATADIR_GET, FormatEnumerator) = S_OK) then begin
