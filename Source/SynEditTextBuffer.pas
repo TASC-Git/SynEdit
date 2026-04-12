@@ -144,7 +144,7 @@ type
     procedure Clear; override;
     procedure Delete(Index: Integer); override;
     procedure DeleteNative(Index: TSynNativeInt);
-    procedure DeleteLines(Index, NumLines: TSynNativeInt);
+    procedure DeleteLines(const AIndex: TSynNativeInt; ANumLines: TSynNativeInt);
     procedure Insert(Index: Integer; const S: string); override;
     procedure InsertNative(Index: TSynNativeInt; const S: string);
     procedure LoadFromStream(Stream: TStream; Encoding: TEncoding); override;
@@ -292,29 +292,32 @@ begin
   Changed;
 end;
 
-procedure TSynEditStringList.DeleteLines(Index, NumLines: TSynNativeInt);
+procedure TSynEditStringList.DeleteLines(const AIndex: TSynNativeInt; ANumLines: TSynNativeInt);
 var
-  LinesAfter: TSynNativeInt;
+  lLine: TSynNativeInt;
+  lLinesAfter: TSynNativeInt;
 begin
-  if NumLines > 0 then
+  if ANumLines > 0 then
   begin
-    if (Index < 0) or (Index >= FCount) then
-      ListIndexOutOfBounds(Index);
+    if (AIndex < 0) or (AIndex >= FCount) then
+      ListIndexOutOfBounds(AIndex);
 
     Changing;
     if Assigned(FOnBeforeDeleted) then
-      FOnBeforeDeleted(Self, Index, NumLines);
+      FOnBeforeDeleted(Self, AIndex, ANumLines);
 
-    LinesAfter := FCount - (Index + NumLines);
-    if LinesAfter < 0 then
-      NumLines := FCount - Index;
+    lLinesAfter := FCount - (AIndex + ANumLines);
+    if lLinesAfter < 0 then
+      ANumLines := FCount - AIndex;
 
-    if LinesAfter > 0 then
-      System.Move(FList[Index + NumLines], FList[Index],
-        LinesAfter * SynEditStringRecSize);
-    Dec(FCount, NumLines);
+    for lLine := AIndex to AIndex + ANumLines-1 do
+      Finalize(FList[lLine]);
+
+    if lLinesAfter > 0 then
+      System.Move(FList[AIndex + ANumLines], FList[AIndex], lLinesAfter * SynEditStringRecSize);
+    Dec(FCount, ANumLines);
     if Assigned(FOnDeleted) then
-      FOnDeleted(Self, Index, NumLines);
+      FOnDeleted(Self, AIndex, ANumLines);
     Changed;
   end;
 end;
