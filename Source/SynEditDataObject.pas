@@ -246,6 +246,7 @@ var
   HTMLExport: TSynExporterHTML;
   SL: TStringList;
   Ed: TCustomSynEdit;
+  Sel: TSynSelection;
 begin
   Ed := Editor as TCustomSynEdit;
   HTMLExport := TSynExporterHTML.Create(nil);
@@ -254,14 +255,27 @@ begin
     HTMLExport.CreateHTMLFragment := True;
     HTMLExport.UseBackground := not (eoNoHTMLBackground in TCustomSynEdit(Editor).Options);
     HTMLExport.Highlighter := Ed.Highlighter;
-    SL := TStringList.Create;
-    try
-      SL.Text := FText;
-      HTMLExport.ExportAll(SL);
-      HTMLExport.SaveToStream(Stream);
-    finally
-      SL.Free;
+    // DQ changed Apr 2026: keep original buffer coordinates for single-selection HTML export.
+    if Ed.Selections.Count = 1 then
+    begin
+      Sel := Ed.Selections[0].Normalized;
+      if Sel.IsEmpty then
+        HTMLExport.ExportRange(Ed.Lines, BufferCoord(1, Sel.Caret.Line),
+          BufferCoord(MaxInt, Sel.Caret.Line))
+      else
+        HTMLExport.ExportRange(Ed.Lines, Sel.Start, Sel.Stop);
+    end
+    else
+    begin
+      SL := TStringList.Create;
+      try
+        SL.Text := FText;
+        HTMLExport.ExportAll(SL);
+      finally
+        SL.Free;
+      end;
     end;
+    HTMLExport.SaveToStream(Stream);
     // Adding a terminating null byte to the Stream.
     Stream.WriteData(0, 1);
   finally

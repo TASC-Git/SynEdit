@@ -295,6 +295,7 @@ end;
 
 procedure TSynEditStringList.DeleteLines(Index, NumLines: TSynNativeInt);
 var
+  Line: TSynNativeInt;
   LinesAfter: TSynNativeInt;
 begin
   if NumLines > 0 then
@@ -309,6 +310,10 @@ begin
     LinesAfter := FCount - (Index + NumLines);
     if LinesAfter < 0 then
       NumLines := FCount - Index;
+
+    // DQ changed Apr 2026: finalize deleted managed records before shifting the tail.
+    for Line := Index to Index + NumLines - 1 do
+      Finalize(FList[Line]);
 
     if LinesAfter > 0 then
       System.Move(FList[Index + NumLines], FList[Index],
