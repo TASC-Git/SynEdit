@@ -605,7 +605,13 @@ begin
   // Handle Multiline String State
   if fRange = rsMultilineString then
   begin
-    StringProc;
+    case fLine[Run] of
+      #0: NullProc;
+      #10: LFProc;
+      #13: CRProc;
+    else
+      StringProc;
+    end;
     Exit;
   end;
 

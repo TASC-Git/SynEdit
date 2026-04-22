@@ -123,7 +123,7 @@ function CalcFCS(const ABuf; ABufSize: Cardinal): Word;
 function DeleteTypePrefixAndSynSuffix(s: string): string;
 
 function CeilOfIntDiv(Dividend, Divisor: Cardinal): Integer; overload;
-{$IFDEF CPUX64}function CeilOfIntDiv(Dividend, Divisor: UInt64): UInt64; overload;{$ENDIF}
+{$IFDEF CPU64BITS}function CeilOfIntDiv(Dividend, Divisor: UInt64): UInt64; overload;{$ENDIF}
 
 // In Windows Vista or later use the Consolas font
 function DefaultFontName: string;
@@ -771,7 +771,7 @@ begin
   Result := Integer(Res);
 end;
 
-{$IFDEF CPUX64}function CeilOfIntDiv(Dividend, Divisor: UInt64): UInt64;
+{$IFDEF CPU64BITS}function CeilOfIntDiv(Dividend, Divisor: UInt64): UInt64;
 var
   Res: UInt64;
   Remainder: UInt64;

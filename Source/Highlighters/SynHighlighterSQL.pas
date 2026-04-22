@@ -62,7 +62,8 @@ type
     tkSQLPlus, tkString, tkSymbol, tkTableName, tkUnknown, tkVariable,
     tkConditionalComment, tkDelimitedIdentifier, tkProcName, tkConsoleOutput);
 
-  TRangeState = (rsUnknown, rsComment, rsString, rsConditionalComment, rsConsoleOutput);
+  TRangeState = (rsUnknown, rsComment, rsString, rsConditionalComment, rsConsoleOutput,
+    rsOracleQQuoteString);
 
   TSQLDialect = (sqlStandard, sqlInterbase6, sqlMSSQL7, sqlMySQL, sqlOracle,
     sqlSybase, sqlIngres, sqlMSSQL2K, sqlPostgres, sqlNexus, sqlInformix);
@@ -71,6 +72,7 @@ type
   TSynSQLSyn = class(TSynCustomHighlighter)
   private
     fRange: TRangeState;
+    FOracleQQuoteClosingDelimiter: WideChar;
     fTokenID: TtkTokenKind;
     FKeywords: TDictionary<string, TtkTokenKind>;
     FProcNames: TStrings;
@@ -126,6 +128,7 @@ type
     procedure SlashProc;
     procedure SpaceProc;
     procedure QuoteProc;
+    procedure OracleQQuoteProc;
     procedure BacktickProc;
     procedure BracketProc;
     procedure SymbolProc;
@@ -134,6 +137,8 @@ type
     procedure UnknownProc;
     procedure AnsiCProc;
     procedure SetProcNames(const Value: TStrings);
+    function IsOracleQQuoteStart: Boolean;
+    class function GetOracleQQuoteClosingDelimiter(const OpeningDelimiter: WideChar): WideChar; static;
   protected
     function GetSampleSource: string; override;
     function IsFilterStored: Boolean; override;
@@ -1545,6 +1550,59 @@ begin
   end;
 end;
 
+class function TSynSQLSyn.GetOracleQQuoteClosingDelimiter(
+  const OpeningDelimiter: WideChar): WideChar;
+begin
+  case OpeningDelimiter of
+    '[': Result := ']';
+    '(': Result := ')';
+    '{': Result := '}';
+    '<': Result := '>';
+  else
+    Result := OpeningDelimiter;
+  end;
+end;
+
+function TSynSQLSyn.IsOracleQQuoteStart: Boolean;
+begin
+  Result :=
+    (SQLDialect = sqlOracle) and
+    CharInSet(fLine[Run], ['q', 'Q']) and
+    (fLine[Run + 1] = #39) and
+    (fLine[Run + 2] <> #0) and
+    (fLine[Run + 2] <> #39) and
+    not Char(fLine[Run + 2]).IsWhiteSpace;
+end;
+
+procedure TSynSQLSyn.OracleQQuoteProc;
+begin
+  if fLine[Run] = #0 then
+    NullProc
+  else
+  begin
+    fTokenID := tkString;
+
+    if fRange <> rsOracleQQuoteString then
+    begin
+      fRange := rsOracleQQuoteString;
+      FOracleQQuoteClosingDelimiter := GetOracleQQuoteClosingDelimiter(fLine[Run + 2]);
+      Inc(Run, 3);
+    end;
+
+    while not IsLineEnd(Run) do
+    begin
+      if (fLine[Run] = FOracleQQuoteClosingDelimiter) and (fLine[Run + 1] = #39) then
+      begin
+        Inc(Run, 2);
+        fRange := rsUnknown;
+        FOracleQQuoteClosingDelimiter := #0;
+        Exit;
+      end;
+      Inc(Run);
+    end;
+  end;
+end;
+
 procedure TSynSQLSyn.CRProc;
 begin
   fTokenID := tkSpace;
@@ -1908,6 +1966,8 @@ begin
       end;
     rsString:
       AsciiCharProc;
+    rsOracleQQuoteString:
+      OracleQQuoteProc;
   else
     case fLine[Run] of
       #0: NullProc;
@@ -1927,7 +1987,11 @@ begin
       '`': BacktickProc;
       '[': BracketProc;
       ':', '@': VariableProc;
-      'A'..'Z', 'a'..'z', '_': IdentProc;
+      'A'..'Z', 'a'..'z', '_':
+        if IsOracleQQuoteStart then
+          OracleQQuoteProc
+        else
+          IdentProc;
       '0'..'9': NumberProc;
       #1..#9, #11, #12, #14..#32: SpaceProc;
       '^', '%', '*', '!': SymbolAssignProc;
@@ -1967,7 +2031,7 @@ end;
 
 function TSynSQLSyn.GetRange: Pointer;
 begin
-  Result := Pointer(fRange);
+  Result := Pointer((Ord(fRange) and $FF) or (Ord(FOracleQQuoteClosingDelimiter) shl 8));
 end;
 
 function TSynSQLSyn.GetTokenID: TtkTokenKind;
@@ -2011,11 +2075,16 @@ end;
 procedure TSynSQLSyn.ResetRange;
 begin
   fRange := rsUnknown;
+  FOracleQQuoteClosingDelimiter := #0;
 end;
 
 procedure TSynSQLSyn.SetRange(Value: Pointer);
+var
+  EncodedRange: NativeUInt;
 begin
-  fRange := TRangeState(Value);
+  EncodedRange := NativeUInt(Value);
+  fRange := TRangeState(EncodedRange and $FF);
+  FOracleQQuoteClosingDelimiter := WideChar((EncodedRange shr 8) and $FFFF);
 end;
 
 function TSynSQLSyn.IsFilterStored: Boolean;
