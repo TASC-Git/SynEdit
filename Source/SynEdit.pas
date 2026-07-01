@@ -540,6 +540,7 @@ type
       var Result: HResult); virtual;
     procedure OleDragLeave(Sender: TObject; var Result: HResult); virtual;
     //-- Ole Drag & Drop
+    function CreateClipboardDataObject: IDataObject; virtual;
     function GetReadOnly: Boolean; virtual;
     procedure HighlighterAttrChanged(Sender: TObject);
     procedure InitializeCaret;
@@ -673,6 +674,7 @@ type
       Data: Pointer = nil); virtual;
     procedure ClearUndo;
     procedure ClearTrackChanges;
+    function CreateUndoRedoManager: ISynEditUndo; virtual;
     procedure MarkSaved;
     procedure CopyToClipboard;
     procedure CutToClipboard;
@@ -1129,6 +1131,14 @@ uses
   SynEditDragDrop,
   SynEditSearch;
 
+const
+  D2DERR_RECREATE_TARGET_CODE = LongWord($8899000C);
+
+function IsRecoverableD2DPaintError(const E: EOSError): Boolean;
+begin
+  Result := LongWord(E.ErrorCode) = D2DERR_RECREATE_TARGET_CODE;
+end;
+
 { TCustomSynEdit }
 
 function TCustomSynEdit.PixelsToNearestRowColumn(aX, aY: TSynNativeInt): TDisplayCoord;
@@ -1436,9 +1446,14 @@ begin
   fScrollTimer.Enabled := (fScrollDeltaX <> 0) or (fScrollDeltaY <> 0);
 end;
 
+function TCustomSynEdit.CreateClipboardDataObject: IDataObject;
+begin
+  Result := TSynEditDataObject.Create(Self);
+end;
+
 procedure TCustomSynEdit.CopyToClipboard;
 begin
-  OleSetClipboard(TSynEditDataObject.Create(Self));
+  OleSetClipboard(CreateClipboardDataObject);
 end;
 
 procedure TCustomSynEdit.CutToClipboard;
@@ -1453,6 +1468,11 @@ begin
       EndUndoBlock;
     end;
   end;
+end;
+
+function TCustomSynEdit.CreateUndoRedoManager: ISynEditUndo;
+begin
+  Result := CreateSynEditUndo(Self);
 end;
 
 constructor TCustomSynEdit.Create(AOwner: TComponent);
@@ -1476,7 +1496,7 @@ fLines := TSynEditStringList.Create(TextWidth);
     OnInserted := ListInserted;
     OnPut := ListPut;
   end;
-  fUndoRedo := CreateSynEditUndo(Self);
+  fUndoRedo := CreateUndoRedoManager;
   fUndoRedo.OnModifiedChanged := ModifiedChanged;
   fOrigUndoRedo := fUndoRedo;
 
@@ -2100,7 +2120,7 @@ begin
       and IsPointInSelection(PixelsToBuffer(X, Y)) then
     begin
       if DragDetect(Handle, Point(X,Y)) then begin
-        DataObject := TSynEditDataObject.Create(Self);
+        DataObject := CreateClipboardDataObject;
         DragSource := TSynDragSource.Create;
         try
           Include(fStateFlags, sfOleDragSource);
@@ -2363,39 +2383,49 @@ var
   nL1, nL2: TSynNativeInt;
   RT: ID2D1DCRenderTarget;
 begin
-  // Get the invalidated rect. Compute the invalid area in lines / columns.
-  rcClip := Canvas.ClipRect;
-  if rcClip.IsEmpty then Exit;
+  try
+    // Get the invalidated rect. Compute the invalid area in lines / columns.
+    rcClip := Canvas.ClipRect;
+    if rcClip.IsEmpty then Exit;
 
-  // lines
-  nL1 := Max(TopLine + rcClip.Top div fTextHeight, TopLine);
-  nL2 := MinMax(TopLine + (rcClip.Bottom + fTextHeight - 1) div fTextHeight,
-    1, DisplayRowCount);
+    // lines
+    nL1 := Max(TopLine + rcClip.Top div fTextHeight, TopLine);
+    nL2 := MinMax(TopLine + (rcClip.Bottom + fTextHeight - 1) div fTextHeight,
+      1, DisplayRowCount);
 
-  //Create the RenderTarget
-  RT := TSynDWrite.RenderTarget;
-  RT.BindDC(Canvas.Handle, rcClip);
-  RT.BeginDraw;
-  RT.SetTransform(TD2DMatrix3X2F.Translation(-rcClip.Left, -rcClip.Top));
+    //Create the RenderTarget
+    RT := TSynDWrite.RenderTarget;
+    RT.BindDC(Canvas.Handle, rcClip);
+    RT.BeginDraw;
+    RT.SetTransform(TD2DMatrix3X2F.Translation(-rcClip.Left, -rcClip.Top));
 
-  // First paint the gutter area if it was (partly) invalidated.
-  if (rcClip.Left < fGutterWidth) then
-  begin
-    rcDraw := rcClip;
-    rcDraw.SetRight(fGutterWidth);
-    PaintGutter(RT, rcDraw, nL1, nL2);
+    // First paint the gutter area if it was (partly) invalidated.
+    if (rcClip.Left < fGutterWidth) then
+    begin
+      rcDraw := rcClip;
+      rcDraw.SetRight(fGutterWidth);
+      PaintGutter(RT, rcDraw, nL1, nL2);
+    end;
+
+    // Then paint the text area if it was (partly) invalidated.
+    if (rcClip.Right > fGutterWidth) then
+    begin
+      rcDraw := rcClip;
+      rcDraw.SetLeft(Max(rcDraw.Left, fGutterWidth));
+      PaintTextLines(RT, rcDraw, nL1, nL2);
+    end;
+
+    // If there was a problem rectreate the RenderTarget
+    if RT.EndDraw <> S_OK then TSynDWrite.ResetRenderTarget;
+  except
+    on E: EOSError do
+    begin
+      if not IsRecoverableD2DPaintError(E) then
+        raise;
+      TSynDWrite.ResetRenderTarget;
+      Exit;
+    end;
   end;
-
-  // Then paint the text area if it was (partly) invalidated.
-  if (rcClip.Right > fGutterWidth) then
-  begin
-    rcDraw := rcClip;
-    rcDraw.SetLeft(Max(rcDraw.Left, fGutterWidth));
-    PaintTextLines(RT, rcDraw, nL1, nL2);
-  end;
-
-  // If there was a problem rectreate the RenderTarget
-  if RT.EndDraw <> S_OK then TSynDWrite.ResetRenderTarget;
 
   PluginsAfterPaint(Canvas, rcClip, nL1, nL2);
 
@@ -2744,6 +2774,7 @@ var
     RectF: TRectF;
     StrokeStyle: ID2D1StrokeStyle;
     BMSize: TD2D1SizeF;
+    EndDrawResult: HResult;
   begin
     if UseCodeFolding and
       FIndentGuides.StructureHighlight and Assigned(fHighlighter) and
@@ -2761,16 +2792,31 @@ var
     else
       StrokeStyle := nil;
 
-    CheckOSError(RT.CreateCompatibleRenderTarget(@BMSize, nil, nil,
-      D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_GDI_COMPATIBLE,
-      BitmapRT));
+    try
+      CheckOSError(RT.CreateCompatibleRenderTarget(@BMSize, nil, nil,
+        D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_GDI_COMPATIBLE,
+        BitmapRT));
       BitmapRT.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
       BitmapRT.BeginDraw;
       BitmapRT.DrawLine(Point(1, 0), Point(1, fTextHeight),
         TSynDWrite.SolidBrush(FIndentGuides.Color),
         Round(FCurrentPPI / 96), StrokeStyle);
-      BitmapRT.EndDraw;
+      EndDrawResult := BitmapRT.EndDraw;
+      if EndDrawResult <> S_OK then
+      begin
+        TSynDWrite.ResetRenderTarget;
+        Exit;
+      end;
       CheckOSError(BitmapRT.GetBitmap(BM));
+    except
+      on E: EOSError do
+      begin
+        if not IsRecoverableD2DPaintError(E) then
+          raise;
+        TSynDWrite.ResetRenderTarget;
+        Exit;
+      end;
+    end;
 
 
     for Row := aFirstRow to aLastRow do begin
@@ -8468,14 +8514,23 @@ var
 begin
   Layout.Create(FTextFormat, PChar(S), S.Length, MaxInt, fTextHeight);
   Layout.SetFontStyle(FontStyle, 1, S.Length);
-  RT := TSynDWrite.RenderTarget;
-  RT.SetTransform(TD2DMatrix3X2F.Identity);
-  RT.BindDC(Canvas.Handle, ClipR);
-  RT.BeginDraw;
-  if BkgColor <> clNone then
-    RT.Clear(D2D1ColorF(BkgColor));
-  Layout.Draw(RT, P.X, P.Y, FontColor);
-  if RT.EndDraw <> S_OK then TSynDWrite.ResetRenderTarget;
+  try
+    RT := TSynDWrite.RenderTarget;
+    RT.SetTransform(TD2DMatrix3X2F.Identity);
+    RT.BindDC(Canvas.Handle, ClipR);
+    RT.BeginDraw;
+    if BkgColor <> clNone then
+      RT.Clear(D2D1ColorF(BkgColor));
+    Layout.Draw(RT, P.X, P.Y, FontColor);
+    if RT.EndDraw <> S_OK then TSynDWrite.ResetRenderTarget;
+  except
+    on E: EOSError do
+    begin
+      if not IsRecoverableD2DPaintError(E) then
+        raise;
+      TSynDWrite.ResetRenderTarget;
+    end;
+  end;
 end;
 
 procedure TCustomSynEdit.DoShiftTabKey;
