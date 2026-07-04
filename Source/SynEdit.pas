@@ -375,6 +375,7 @@ type
     FOnZoom: TZoomEvent;
 
     fChainListCleared: TNotifyEvent;
+    fChainListBeforeDeleted: TStringListChangeEvent;
     fChainListDeleted: TStringListChangeEvent;
     fChainListInserted: TStringListChangeEvent;
     fChainListPut: TStringListPutEvent;
@@ -555,6 +556,7 @@ type
     procedure ListPut(Sender: TObject; Index: TSynNativeInt; const OldLine: string);
     //helper procs to chain list commands
     procedure ChainListCleared(Sender: TObject);
+    procedure ChainListBeforeDeleted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
     procedure ChainListDeleted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
     procedure ChainListInserted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
     procedure ChainListPut(Sender: TObject; aIndex: TSynNativeInt; const OldLine: string);
@@ -5672,6 +5674,14 @@ begin
   TSynEditStringList(fOrigLines).OnCleared(Sender);
 end;
 
+procedure TCustomSynEdit.ChainListBeforeDeleted(Sender: TObject; aIndex: TSynNativeInt;
+  aCount: TSynNativeInt);
+begin
+  if Assigned(fChainListBeforeDeleted) then
+    fChainListBeforeDeleted(Sender, aIndex, aCount);
+  TSynEditStringList(fOrigLines).OnBeforeDeleted(Sender, aIndex, aCount);
+end;
+
 procedure TCustomSynEdit.ChainListDeleted(Sender: TObject; aIndex: TSynNativeInt;
   aCount: TSynNativeInt);
 begin
@@ -5752,6 +5762,7 @@ begin
   with TSynEditStringList(fLines) do
   begin
     OnCleared := fChainListCleared;
+    OnBeforeDeleted := fChainListBeforeDeleted;
     OnDeleted := fChainListDeleted;
     OnInserted := fChainListInserted;
     OnPut := fChainListPut;
@@ -5761,6 +5772,7 @@ begin
   fUndoRedo.OnModifiedChanged := fChainModifiedChanged;
 
   fChainListCleared := nil;
+  fChainListBeforeDeleted := nil;
   fChainListDeleted := nil;
   fChainListInserted := nil;
   fChainListPut := nil;
@@ -5795,6 +5807,8 @@ begin
   //store the current values and put in the chained methods
   fChainListCleared := aBuffer.OnCleared;
     aBuffer.OnCleared := ChainListCleared;
+  fChainListBeforeDeleted := aBuffer.OnBeforeDeleted;
+    aBuffer.OnBeforeDeleted := ChainListBeforeDeleted;
   fChainListDeleted := aBuffer.OnDeleted;
     aBuffer.OnDeleted := ChainListDeleted;
   fChainListInserted := aBuffer.OnInserted;
