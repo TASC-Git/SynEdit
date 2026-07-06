@@ -2770,13 +2770,9 @@ var
 
   var
     TabSteps, LineIndent, NonBlankLine, X, Y, Row, Line: TSynNativeInt;
-    BMWidth: NativeInt;
-    BitmapRT: ID2D1BitmapRenderTarget;
-    BM: ID2D1Bitmap;
-    RectF: TRectF;
+    Brush: ID2D1Brush;
+    DrawOffset: Integer;
     StrokeStyle: ID2D1StrokeStyle;
-    BMSize: TD2D1SizeF;
-    EndDrawResult: HResult;
   begin
     if UseCodeFolding and
       FIndentGuides.StructureHighlight and Assigned(fHighlighter) and
@@ -2786,40 +2782,12 @@ var
       Exit;
     end;
 
-    BMWidth := RoundNative(FCurrentPPI / 96) + 2;
-    BMSize := D2D1SizeF(BMWidth, FTextHeight);
-
     if FIndentGuides.Style = igsDotted then
       StrokeStyle := TSynDWrite.DottedStrokeStyle
     else
       StrokeStyle := nil;
-
-    try
-      CheckOSError(RT.CreateCompatibleRenderTarget(@BMSize, nil, nil,
-        D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_GDI_COMPATIBLE,
-        BitmapRT));
-      BitmapRT.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-      BitmapRT.BeginDraw;
-      BitmapRT.DrawLine(Point(1, 0), Point(1, fTextHeight),
-        TSynDWrite.SolidBrush(FIndentGuides.Color),
-        Round(FCurrentPPI / 96), StrokeStyle);
-      EndDrawResult := BitmapRT.EndDraw;
-      if EndDrawResult <> S_OK then
-      begin
-        TSynDWrite.ResetRenderTarget;
-        Exit;
-      end;
-      CheckOSError(BitmapRT.GetBitmap(BM));
-    except
-      on E: EOSError do
-      begin
-        if not IsRecoverableD2DPaintError(E) then
-          raise;
-        TSynDWrite.ResetRenderTarget;
-        Exit;
-      end;
-    end;
-
+    Brush := TSynDWrite.SolidBrush(FIndentGuides.Color);
+    RT.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
 
     for Row := aFirstRow to aLastRow do begin
       Line := RowToLine(Row);
@@ -2839,17 +2807,21 @@ var
         X := TabSteps * CharWidth + fTextOffset;
         if X >= 0 then
         begin
-          RectF := TRectF.FromRect(Rect(X - 1, Y, X + BMWidth - 1, Y + fTextHeight));
           // avoid having two consequtive dots
           if (FIndentGuides.Style = igsDotted) and Odd(fTextHeight) and
             not Odd(Row)
           then
-            RectF.Offset(0, 1);
-          RT.DrawBitmap(BM, PD2D1RectF(@RectF));
+            DrawOffset := 1
+          else
+            DrawOffset := 0;
+          RT.DrawLine(Point(X, Y + DrawOffset),
+            Point(X, Y + fTextHeight + DrawOffset),
+            Brush, Round(FCurrentPPI / 96), StrokeStyle);
         end;
         Inc(TabSteps, TabWidth);
       end;
     end;
+    RT.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
   end;
 
   procedure PaintFoldMarks;
