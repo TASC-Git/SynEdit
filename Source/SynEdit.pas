@@ -1120,6 +1120,7 @@ implementation
 
 uses
   System.Character,
+  System.Win.ComObj,
   Winapi.ShellAPI,
   Vcl.Consts,
   Vcl.Clipbrd,
@@ -1132,6 +1133,11 @@ uses
   SynEditDataObject,
   SynEditDragDrop,
   SynEditSearch;
+
+const
+  // OpenClipboard/OleSetClipboard does not wait for another process that has
+  // the clipboard open. Short backoff retries cover transient contention.
+  SynClipboardRetryDelays: array[0..4] of Cardinal = (10, 20, 40, 80, 160);
 
 const
   D2DERR_RECREATE_TARGET_CODE = LongWord($8899000C);
@@ -1454,8 +1460,27 @@ begin
 end;
 
 procedure TCustomSynEdit.CopyToClipboard;
+var
+  ClipboardData: IDataObject;
+  RetryIndex: Integer;
+  Status: HResult;
 begin
-  OleSetClipboard(CreateClipboardDataObject);
+  ClipboardData := CreateClipboardDataObject;
+  Status := S_OK;
+  for RetryIndex := Low(SynClipboardRetryDelays) to
+    High(SynClipboardRetryDelays) do
+  begin
+    Status := OleSetClipboard(ClipboardData);
+    if Succeeded(Status) then
+      Exit;
+    if Status <> CLIPBRD_E_CANT_OPEN then
+      OleCheck(Status);
+    Sleep(SynClipboardRetryDelays[RetryIndex]);
+  end;
+
+  // Propagate final failure so CutToClipboard cannot delete a selection that
+  // was never successfully placed on the clipboard.
+  OleCheck(OleSetClipboard(ClipboardData));
 end;
 
 procedure TCustomSynEdit.CutToClipboard;

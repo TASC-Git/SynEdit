@@ -205,6 +205,10 @@ uses
   SynEditStrConst,
   SynFunc;
 
+const
+  SynExportClipboardRetryDelays: array[0..4] of Cardinal =
+    (10, 20, 40, 80, 160);
+
 { TSynCustomExporter }
 
 constructor TSynCustomExporter.Create(AOwner: TComponent);
@@ -308,11 +312,28 @@ begin
 end;
 
 procedure TSynCustomExporter.CopyToClipboard;
+var
+  RetryIndex: Integer;
 begin
-  if fExportAsText then
-    SetClipboardText(ExportedText)
-  else
-    CopyToClipboardFormat(GetClipboardFormat);
+  RetryIndex := 0;
+  while True do
+  begin
+    try
+      if fExportAsText then
+        SetClipboardText(ExportedText)
+      else
+        CopyToClipboardFormat(GetClipboardFormat);
+      Exit;
+    except
+      on E: EClipboardException do
+      begin
+        if RetryIndex > High(SynExportClipboardRetryDelays) then
+          raise;
+        Sleep(SynExportClipboardRetryDelays[RetryIndex]);
+        Inc(RetryIndex);
+      end;
+    end;
+  end;
 end;
 
 procedure TSynCustomExporter.CopyToClipboardFormat(AFormat: UINT);
@@ -323,6 +344,8 @@ var
 begin
   hDataSize := TSynNativeInt(GetBufferSize + 1);
   hData := GlobalAlloc(GMEM_MOVEABLE or GMEM_ZEROINIT or GMEM_SHARE, hDataSize);
+  if hData = 0 then
+    OutOfMemoryError;
   if hData <> 0 then
   try
     PtrData := GlobalLock(hData);
@@ -340,7 +363,7 @@ begin
       Abort;
   except
     GlobalFree(hData);
-    OutOfMemoryError;
+    raise;
   end;
 end;
 
