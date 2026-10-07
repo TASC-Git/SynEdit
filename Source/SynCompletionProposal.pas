@@ -105,6 +105,7 @@ type
 
   TSynBaseCompletionProposalForm = class(TCustomForm)
   private
+    FCanFocus: Boolean;
     FCurrentString: string;
     FOnPaintItem: TSynBaseCompletionProposalPaintItem;
     FOnMeasureItem: TSynBaseCompletionProposalMeasureItem;
@@ -202,6 +203,7 @@ type
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure Resize; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure WMMouseActivate(var AMsg: TMessage); message WM_MOUSEACTIVATE;
     procedure WMMouseWheel(var Msg: TMessage); message WM_MOUSEWHEEL;
     procedure WMActivate (var Message: TWMActivate); message WM_ACTIVATE;
     procedure WMGetDlgCode(var Message: TWMGetDlgCode); message WM_GETDLGCODE;
@@ -210,6 +212,8 @@ type
   public
     constructor Create(AOwner: Tcomponent); override;
     destructor Destroy; override;
+
+    function CanFocus: Boolean; override;
 
     function LogicalToPhysicalIndex(Index: Integer): Integer;
     function PhysicalToLogicalIndex(Index: Integer): Integer;
@@ -410,7 +414,7 @@ type
     FAdjustCompletionStart: Boolean;
     FOnCodeCompletion: TCodeCompletionEvent;
     FTimer: TTimer;
-    FTimerInterval: Integer;
+    FTimerInterval: Cardinal;
     FEditor: TCustomSynEdit;
     FOnAfterCodeCompletion: TAfterCodeCompletionEvent;
     FOnCancelled: TNotifyEvent;
@@ -419,13 +423,13 @@ type
     procedure HandleOnValidate(Sender: TObject; Shift: TShiftState; EndToken: WideChar);
     procedure HandleOnKeyPress(Sender: TObject; var Key: WideChar);
     procedure HandleDblClick(Sender: TObject);
-    procedure EditorKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-    procedure EditorKeyPress(Sender: TObject; var Key: WideChar);
+    procedure EditorKeyDown(ASender: TObject; var AKey: Word; AShift: TShiftState);
+    procedure EditorKeyPress(ASender: TObject; var AKey: Char);
     procedure TimerExecute(Sender: TObject);
     function GetPreviousToken(AEditor: TCustomSynEdit): string;
     function GetCurrentInput(AEditor: TCustomSynEdit): string;
-    function GetTimerInterval: Integer;
-    procedure SetTimerInterval(const Value: Integer);
+    function GetTimerInterval: Cardinal;
+    procedure SetTimerInterval(const Value: Cardinal);
     function GetEditor(i: TSynNativeInt): TCustomSynEdit;
     procedure InternalCancelCompletion;
   protected
@@ -453,7 +457,7 @@ type
   published
     property ShortCut: TShortCut read FShortCut write SetShortCut;
     property Editor: TCustomSynEdit read FEditor write SetEditor;
-    property TimerInterval: Integer read GetTimerInterval write SetTimerInterval default 1000;
+    property TimerInterval: Cardinal read GetTimerInterval write SetTimerInterval default 1000;
 
     property OnAfterCodeCompletion: TAfterCodeCompletionEvent read FOnAfterCodeCompletion write FOnAfterCodeCompletion;
     property OnCancelled: TNotifyEvent read FOnCancelled write FOnCancelled;
@@ -1175,6 +1179,13 @@ end;
 
 { TSynBaseCompletionProposalForm }
 
+function TSynBaseCompletionProposalForm.CanFocus: Boolean;
+begin
+  Result := FCanFocus;
+  if Result then
+    Result := inherited CanFocus;
+end;
+
 constructor TSynBaseCompletionProposalForm.Create(AOwner: TComponent);
 begin
   CreateNew(AOwner);
@@ -1268,13 +1279,13 @@ procedure TSynBaseCompletionProposalForm.Activate;
 begin
   Visible := True;
   if (DisplayType = ctCode) and Assigned(CurrentEditor) then
-    (CurrentEditor as TCustomSynEdit).AddFocusControl(Self);
+    CurrentEditor.AddFocusControl(Self);
 end;
 
 procedure TSynBaseCompletionProposalForm.Deactivate;
 begin
   if (DisplayType = ctCode) and Assigned(CurrentEditor) then begin
-    (CurrentEditor as TCustomSynEdit).RemoveFocusControl(Self);
+    CurrentEditor.RemoveFocusControl(Self);
     Visible := False;
   end;
 end;
@@ -1303,7 +1314,7 @@ var
   begin
     if Cmd <> ecNone then begin
       if Assigned(CurrentEditor) then
-        (CurrentEditor as TCustomSynEdit).CommandProcessor(Cmd, #0, nil);
+        CurrentEditor.CommandProcessor(Cmd, #0, nil);
 
       if Assigned(OnCancel) then
         OnCancel(Self);
@@ -1312,9 +1323,13 @@ var
 begin
   if DisplayType = ctCode then
   begin
-    i := (CurrentEditor as TCustomSynEdit).Keystrokes.FindKeycode(Key, Shift);
+    if Assigned(CurrentEditor) then
+      i := CurrentEditor.Keystrokes.FindKeycode(Key, Shift)
+    else
+      i := -1;
+
     if i >= 0 then
-      Cmd := TCustomSynEdit(CurrentEditor).Keystrokes[i].Command
+      Cmd := CurrentEditor.Keystrokes[i].Command
     else
       Cmd := ecNone;
     case Key of
@@ -1336,14 +1351,14 @@ begin
           begin
             CurrentString := Copy(CurrentString, 1, Length(CurrentString) - 1);
             if Assigned(CurrentEditor) then
-              (CurrentEditor as TCustomSynEdit).CommandProcessor(ecLeft, #0, nil);
+              CurrentEditor.CommandProcessor(ecLeft, #0, nil);
           end
           else
           begin
             //Since we have control, we need to re-send the key to
             //the editor so that the cursor behaves properly
             if Assigned(CurrentEditor) then
-              (CurrentEditor as TCustomSynEdit).CommandProcessor(ecLeft, #0, nil);
+              CurrentEditor.CommandProcessor(ecLeft, #0, nil);
 
             if Assigned(OnCancel) then
               OnCancel(Self);
@@ -1354,7 +1369,7 @@ begin
         if (Shift = []) then
         begin
           if Assigned(CurrentEditor) then
-            with CurrentEditor as TCustomSynEdit do
+            with CurrentEditor do
             begin
               if CaretX <= Length(LineText) then
                 C := LineText[CaretX]
@@ -1398,14 +1413,14 @@ begin
             CurrentString := Copy(CurrentString, 1, Length(CurrentString) - 1);
 
             if Assigned(CurrentEditor) then
-              (CurrentEditor as TCustomSynEdit).CommandProcessor(ecDeleteLastChar, #0, nil);
+              CurrentEditor.CommandProcessor(ecDeleteLastChar, #0, nil);
           end
           else
           begin
             //Since we have control, we need to re-send the key to
             //the editor so that the cursor behaves properly
             if Assigned(CurrentEditor) then
-              (CurrentEditor as TCustomSynEdit).CommandProcessor(ecDeleteLastChar, #0, nil);
+              CurrentEditor.CommandProcessor(ecDeleteLastChar, #0, nil);
 
             if Assigned(OnCancel) then
               OnCancel(Self);
@@ -1414,7 +1429,7 @@ begin
           ExecuteCmdAndCancel;
       SYNEDIT_DELETE:
         if Assigned(CurrentEditor) then
-          (CurrentEditor as TCustomSynEdit).CommandProcessor(ecDeleteChar, #0, nil);
+          CurrentEditor.CommandProcessor(ecDeleteChar, #0, nil);
     else
       ExecuteCmdAndCancel;
     end;
@@ -1448,7 +1463,7 @@ begin
         if Assigned(OnKeyPress) then
           OnKeyPress(Self, Key);
       else
-        with CurrentEditor as TCustomSynEdit do
+        with CurrentEditor do
           CommandProcessor(ecChar, Key, nil);
 
         if Assigned(OnCancel) then
@@ -1463,7 +1478,7 @@ procedure TSynBaseCompletionProposalForm.MouseDown(Button: TMouseButton;
 begin
   y := (y - FTitleHeight) div FEffectiveItemHeight;
   Position := FScrollbar.Position + y;
-//  (CurrentEditor as TCustomSynEdit).UpdateCaret;
+//  CurrentEditor.UpdateCaret;
 end;
 
 procedure TSynBaseCompletionProposalForm.Resize;
@@ -1701,7 +1716,7 @@ end;
 procedure TSynBaseCompletionProposalForm.ScrollbarOnScroll(Sender: TObject;
   ScrollCode: TScrollCode; var ScrollPos: Integer);
 begin
-  with CurrentEditor as TCustomSynEdit do
+  with CurrentEditor do
   begin
     SetFocus;
     //This tricks the caret into showing itself again.
@@ -1755,17 +1770,17 @@ procedure TSynBaseCompletionProposalForm.SetCurrentString(const Value: string);
   var
     CompareString: string;
   begin
-    if UseInsertList then
-      CompareString := FInsertList[AIndex]
-    else
-    begin
-      CompareString := FItemList[AIndex];
-
-      if UsePrettyText then
-        CompareString := StripFormatCommands(CompareString);
-    end;
+    CompareString := FItemList[AIndex];
+    if UsePrettyText then
+      CompareString := StripFormatCommands(CompareString);
 
     Result := CompareString.StartsWith(Value, not FCase);
+    if not Result then
+    begin
+      CompareString := FInsertList[AIndex];
+
+      Result := CompareString.StartsWith(Value, not FCase);
+    end;
   end;
 
   procedure RecalcList;
@@ -1908,6 +1923,14 @@ begin
   Result := (Owner as TSynBaseCompletionProposal).IsWordBreakChar(AChar);
 end;
 
+procedure TSynBaseCompletionProposalForm.WMMouseActivate(var AMsg: TMessage);
+begin
+  if (not CanFocus) and SysLocale.FarEast then
+    AMsg.Result := MA_NOACTIVATE
+  else
+    inherited;
+end;
+
 procedure TSynBaseCompletionProposalForm.WMMouseWheel(var Msg: TMessage);
 var
   nDelta: Integer;
@@ -1925,7 +1948,7 @@ begin
     nDelta := FLinesInWindow;
 
   Position := Position - (nDelta * nWheelClicks);
-//  (CurrentEditor as TCustomSynEdit).UpdateCaret;
+//  CurrentEditor.UpdateCaret;
 end;
 
 procedure TSynBaseCompletionProposalForm.WMNCHitTest(var Message: TWMNCHitTest);
@@ -2024,7 +2047,7 @@ procedure TSynBaseCompletionProposalForm.DoFormHide(Sender: TObject);
 begin
   if CurrentEditor <> nil then
   begin
-    (CurrentEditor as TCustomSynEdit).AlwaysShowCaret := OldShowCaret;
+    CurrentEditor.AlwaysShowCaret := OldShowCaret;
     if DisplayType = ctCode then
     begin
       // Save after removing the PPI scaling
@@ -2040,7 +2063,7 @@ procedure TSynBaseCompletionProposalForm.DoFormShow(Sender: TObject);
 begin
   if Assigned(CurrentEditor) then
   begin
-    with CurrentEditor as TCustomSynEdit do
+    with CurrentEditor do
     begin
       OldShowCaret := AlwaysShowCaret;
       AlwaysShowCaret := Focused;
@@ -2242,7 +2265,7 @@ var
     // Scrollbar needs to be properly scaled in case primary monitor is High-DPI
     // Check for Windows Anniversary Edition
     if (TOSVersion.Major >= 10) and (TOSVersion.Build >= 14393) then
-      FForm.FScrollbar.Width := GetSystemMetricsForDPI(SM_CXVSCROLL, ActivePPI)
+      FForm.FScrollbar.Width := GetSystemMetricsForDPI(SM_CXVSCROLL, Cardinal(ActivePPI))
     else
       FForm.FScrollbar.Width := GetSystemMetrics(SM_CXVSCROLL);
 
@@ -2309,7 +2332,7 @@ var
 
     if tmpY + tmpHeight > WorkArea.Bottom then
     begin
-      tmpY := tmpY - tmpHeight - ToInt32((Form.CurrentEditor  as TCustomSynEdit).LineHeight - 2 * FForm.FScaledMargin);
+      tmpY := tmpY - tmpHeight - ToInt32(Form.CurrentEditor.LineHeight - 2 * FForm.FScaledMargin);
       if tmpY < 0 then
         tmpY := 0;
     end;
@@ -2355,7 +2378,7 @@ begin
 
   if Assigned(Form.CurrentEditor) then
   begin
-    TmpOffset := (Form.CurrentEditor as TCustomSynEdit).Canvas.TextWidth(Copy(CurrentInput, 1, DotOffset));
+    TmpOffset := Form.CurrentEditor.Canvas.TextWidth(Copy(CurrentInput, 1, DotOffset));
     if DotOffset > 1 then
       TmpOffset := TmpOffset + (3 * (DotOffset -1));
     Form.PopupParent := GetParentForm(Form.CurrentEditor);
@@ -2377,7 +2400,21 @@ begin
       Form.FScrollbar.Position := Form.Position;
       Form.FScrollbar.Visible := True;
 
-      Form.Show;
+      if not SysLocale.FarEast then
+      begin
+        Form.FCanFocus := True;
+        Form.Show;
+      end
+      else
+      begin
+        Form.FCanFocus := False;
+        if not Form.Visible then
+        begin
+          ShowWindow(Form.Handle, SW_SHOWNA);
+          Form.Visible := True;
+        end;
+        Form.Invalidate;
+      end;
 
       CurrentString := CurrentInput;
     end;
@@ -2385,6 +2422,7 @@ begin
     begin
       Form.FScrollbar.Visible := False;
 
+      Form.FCanFocus := False;
       if not Form.Visible then
       begin
         //ShowWindow(Form.Handle, SW_SHOWNOACTIVATE);
@@ -2834,14 +2872,14 @@ begin
 
     F.Hide;
 
-    if ((CurrentEditor as TCustomSynEdit).Owner is TWinControl) and
-       (((CurrentEditor as TCustomSynEdit).Owner as TWinControl).Visible) then
+    if (CurrentEditor.Owner is TWinControl) and
+       ((CurrentEditor.Owner as TWinControl).Visible) then
     begin
-      ((CurrentEditor as TCustomSynEdit).Owner as TWinControl).SetFocus;
+      (CurrentEditor.Owner as TWinControl).SetFocus;
     end;
 
-    if (CurrentEditor as TCustomSynEdit).CanFocus then
-      (CurrentEditor as TCustomSynEdit).SetFocus;
+    if CurrentEditor.CanFocus then
+      CurrentEditor.SetFocus;
 
     if Assigned(OnCancelled) then
       OnCancelled(Self);
@@ -2857,7 +2895,7 @@ var
 begin
   F := Sender as TSynBaseCompletionProposalForm;
   if Assigned(F.CurrentEditor) then
-    with F.CurrentEditor as TCustomSynEdit do
+    with F.CurrentEditor do
     begin
       //Treat entire completion as a single undo operation
       BeginUpdate;
@@ -2911,7 +2949,7 @@ begin
         if SelText <> Value then
           SelText := Value;
 
-        with (F.CurrentEditor as TCustomSynEdit) do
+        with F.CurrentEditor do
         begin
           //This replaces the previous way of cancelling the completion by
           //sending a WM_MOUSEDOWN message. The problem with the mouse down is
@@ -2941,7 +2979,7 @@ begin
   F := Sender as TSynBaseCompletionProposalForm;
   if F.CurrentEditor <> nil then
   begin
-    with F.CurrentEditor as TCustomSynEdit do
+    with F.CurrentEditor do
       CommandProcessor(ecChar, Key, nil);
     //Daisy chain completions
     Application.ProcessMessages;
@@ -2951,7 +2989,7 @@ begin
           DoExecute(Sender as TCustomSynEdit)
         else
           if Assigned(Form.CurrentEditor) then
-            DoExecute(Form.CurrentEditor as TCustomSynEdit);
+            DoExecute(Form.CurrentEditor);
       end;
   end;
 end;
@@ -3004,22 +3042,42 @@ begin
   FShortCut := Value;
 end;
 
-procedure TSynCompletionProposal.EditorKeyDown(Sender: TObject;
-  var Key: Word; Shift: TShiftState);
+procedure TSynCompletionProposal.EditorKeyDown(ASender: TObject; var AKey: Word; AShift: TShiftState);
 var
-  ShortCutKey: Word;
-  ShortCutShift: TShiftState;
-  Editor: TCustomSynedit;
+  lEditor: TCustomSynedit;
+  lShortCutKey: Word;
+  lShortCutShift: TShiftState;
 begin
-  Editor := Sender as TCustomSynEdit;
-  ShortCutToKey (fShortCut,ShortCutKey,ShortCutShift);
-    if ((DefaultType <> ctCode) or not Editor.ReadOnly) and
-       (Shift = ShortCutShift) and (Key = ShortCutKey) then
+  if Assigned(Form.CurrentEditor) and Form.Visible then
+  begin
+    if (Form.DisplayType = ctCode) and ((AKey = vkUp) or (AKey = vkDown) or
+      (AKey = vkPrior) or (AKey = vkNext) or (AKey = vkHome) or
+      (AKey = vkEnd) or (AKey = vkReturn) or (AKey = vkEscape)) then
     begin
-      Form.CurrentEditor := Editor;
-      Key := 0;
-      DoExecute(Editor);
+      Form.KeyDown(AKey, AShift);
+      AKey := 0;
+      Exit;
     end;
+
+    if (not Form.CanFocus) and (AKey = vkBack) and (AShift = []) then
+    begin
+      if not Form.CurrentString.IsEmpty then
+        Form.CurrentString := Form.CurrentString.Substring(0, Form.CurrentString.Length - 1)
+      else if Assigned(Form.OnCancel) then
+        Form.OnCancel(Form);
+      Exit;
+    end;
+  end;
+
+  lEditor := ASender as TCustomSynEdit;
+  ShortCutToKey(fShortCut, lShortCutKey, lShortCutShift);
+  if ((DefaultType <> ctCode) or not lEditor.ReadOnly) and
+     (AShift = lShortCutShift) and (AKey = lShortCutKey) then
+  begin
+    Form.CurrentEditor := lEditor;
+    AKey := 0;
+    DoExecute(lEditor);
+  end;
 end;
 
 function TSynCompletionProposal.GetCurrentInput(AEditor: TCustomSynEdit): string;
@@ -3072,20 +3130,30 @@ begin
   end;
 end;
 
-procedure TSynCompletionProposal.EditorKeyPress(Sender: TObject; var Key: WideChar);
+procedure TSynCompletionProposal.EditorKeyPress(ASender: TObject; var AKey: Char);
 begin
-  if fNoNextKey  then
+  if fNoNextKey then
   begin
     FNoNextKey := False;
-    Key := #0;
+    AKey := #0;
   end
   else
-  if Assigned(FTimer) then
   begin
-    DeactivateTimer;
-    if Pos(Key, TriggerChars) <> 0 then
-      ActivateTimer(Sender as TCustomSynEdit);
+    if Form.Visible and (not Form.CanFocus) and (Form.DisplayType = ctCode) and
+       (AKey >= #32) then
+    begin
+      if Form.IsWordBreakChar(AKey) and Assigned(Form.OnValidate) then
+        Form.OnValidate(Form, [], AKey)
+      else
+        Form.CurrentString := Form.CurrentString + AKey;
+    end;
 
+    if Assigned(FTimer) then
+    begin
+      DeactivateTimer;
+      if Pos(AKey, TriggerChars) <> 0 then
+        ActivateTimer(ASender as TCustomSynEdit);
+    end;
   end;
 end;
 
@@ -3131,7 +3199,7 @@ begin
   FTimer.Enabled := False;
   if Application.Active then
   begin
-    DoExecute(Form.CurrentEditor as TCustomSynEdit);
+    DoExecute(Form.CurrentEditor);
     FNoNextKey := False;
   end else if Form.Visible then begin
     Form.Hide;
@@ -3139,12 +3207,12 @@ begin
   end;
 end;
 
-function TSynCompletionProposal.GetTimerInterval: Integer;
+function TSynCompletionProposal.GetTimerInterval: Cardinal;
 begin
   Result := FTimerInterval;
 end;
 
-procedure TSynCompletionProposal.SetTimerInterval(const Value: Integer);
+procedure TSynCompletionProposal.SetTimerInterval(const Value: Cardinal);
 begin
   FTimerInterval := Value;
   if Assigned(FTimer) then
@@ -3161,7 +3229,7 @@ begin
     begin
       FTimer := TTimer.Create(Self);
       FTimer.Enabled := False;
-      FTimer.Interval := FTimerInterval;
+      FTimer.Interval := Cardinal(FTimerInterval);
       FTimer.OnTimer := TimerExecute;
     end;
   end else begin
@@ -3251,7 +3319,7 @@ begin
 
         Form.CurrentEditor := AEditor;
 
-        FPreviousToken := GetPreviousToken(Form.CurrentEditor as TCustomSynEdit);
+        FPreviousToken := GetPreviousToken(Form.CurrentEditor);
         ExecuteEx(GetCurrentInput(AEditor), p.x, p.y, DefaultType);
         FNoNextKey := (DefaultType = ctCode) and FCanExecute and Form.Visible;
       end;
@@ -3291,8 +3359,11 @@ begin
   begin
     case DisplayType of
     ctCode:
+      if (Command = ecLostFocus) and ((Screen.ActiveControl = nil) or
+          ((Screen.ActiveControl <> Form) and
+          (not Form.ContainsControl(Screen.ActiveControl)))) then
       begin
-
+        CancelCompletion;
       end;
     ctHint:
       begin
@@ -3321,15 +3392,24 @@ begin
       end;
     end;
   end
-  else
-  if (not Form.Visible) and Assigned(FTimer) then
+  else if not Form.Visible then
   begin
-    if (Command = ecChar) then
-      if (Pos(AChar, TriggerChars) = 0) then
-        FTimer.Enabled := False
+    if Assigned(FTimer) then
+    begin
+      if (Command = ecChar) then
+      begin
+        if (Pos(AChar, TriggerChars) = 0) then
+          FTimer.Enabled := False;
+      end
       else
-    else
-      FTimer.Enabled := False;
+        FTimer.Enabled := False;
+    end
+    else if AfterProcessing and (Command = ecChar) and
+      (Pos(AChar, TriggerChars) > 0) then
+    begin
+      DoExecute(Sender as TCustomSynEdit);
+      FNoNextKey := False;
+    end;
   end;
 
 end;
