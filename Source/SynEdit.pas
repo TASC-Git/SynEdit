@@ -295,6 +295,9 @@ type
     fTextOffset: TSynNativeInt;
     fTopLine: TSynNativeInt;
     fHighlighter: TSynCustomHighlighter;
+    fBinaryMode: Boolean;
+    fOrigBinaryMode: Boolean;
+    fAutoDetectBinary: Boolean;
     fSelectedColor: TSynSelectedColor;
     FIndentGuides: TSynIndentGuides;
     fActiveLineColor: TColor;
@@ -375,6 +378,7 @@ type
     FOnZoom: TZoomEvent;
 
     fChainListCleared: TNotifyEvent;
+    fChainBinaryFile: TNotifyEvent;
     fChainListBeforeDeleted: TStringListChangeEvent;
     fChainListDeleted: TStringListChangeEvent;
     fChainListInserted: TStringListChangeEvent;
@@ -464,6 +468,10 @@ type
     procedure SetGutterWidth(Value: Integer);
     procedure SetHideSelection(const Value: Boolean);
     procedure SetHighlighter(const Value: TSynCustomHighlighter);
+    procedure SetBinaryMode(const Value: Boolean);
+    procedure SetAutoDetectBinary(const Value: Boolean);
+    procedure DoBinaryFileDetected(Sender: TObject);
+    procedure SubstituteBinaryChars(var S: string);
     procedure SetIndentGuides(const Value: TSynIndentGuides);
     procedure SetInsertCaret(const Value: TSynEditCaretType);
     procedure SetInsertMode(const Value: Boolean);
@@ -556,6 +564,7 @@ type
     procedure ListPut(Sender: TObject; Index: TSynNativeInt; const OldLine: string);
     //helper procs to chain list commands
     procedure ChainListCleared(Sender: TObject);
+    procedure ChainBinaryFile(Sender: TObject);
     procedure ChainListBeforeDeleted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
     procedure ChainListDeleted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
     procedure ChainListInserted(Sender: TObject; aIndex: TSynNativeInt; aCount: TSynNativeInt);
@@ -712,6 +721,7 @@ type
     function IsIdentChar(AChar: WideChar): Boolean; virtual;
     function IsWhiteChar(AChar: WideChar): Boolean; virtual;
     function IsWordBreakChar(AChar: WideChar): Boolean; virtual;
+    function IsWordChar(AChar: WideChar): Boolean; virtual;
     // support procedure for ecDeletexxx commands
     function IsNonWhiteChar(AChar: WideChar): Boolean; virtual;
     procedure InvalidateGutter;
@@ -872,6 +882,18 @@ type
       read FScrollbarAnnotations write SetScrollBarAnnotations;
     property Highlighter: TSynCustomHighlighter read fHighlighter
       write SetHighlighter;
+    // When True the editor renders text in a fast "binary" mode: syntax
+    // highlighting is ignored and line widths are computed as fixed-width (no
+    // DirectWrite glyph shaping / font fallback), and non-printable code points
+    // are shown as '.'. This makes opening .exe/.png and other binary files
+    // instantaneous. Normally toggled automatically on load (see
+    // AutoDetectBinary) but can also be set manually.
+    property BinaryMode: Boolean read fBinaryMode write SetBinaryMode
+      default False;
+    // When True (default) the editor automatically enters/leaves BinaryMode
+    // based on the content detected while loading a file.
+    property AutoDetectBinary: Boolean read fAutoDetectBinary
+      write SetAutoDetectBinary default True;
     property LeftChar: TSynNativeInt read fLeftChar write SetLeftChar;
     property LineHeight: TSynNativeInt read fTextHeight;
     property LinesInWindow: TSynNativeInt read fLinesInWindow;
@@ -1061,6 +1083,7 @@ type
     property Gutter;
     property HideSelection;
     property Highlighter;
+    property AutoDetectBinary;
     property IndentGuides;
     property ImeMode;
     property ImeName;
@@ -1232,7 +1255,7 @@ begin
         if Word(P2^) in [9, 65..90, 97..122] then Break;
       end;
 
-      Layout.Create(FTextFormat, P, P2-P, MaxInt, fTextHeight);
+      Layout.Create(FTextFormat, P, TSynNativeInt(P2 - P), MaxInt, fTextHeight);
       CheckOSError(Layout.IDW.HitTestPoint(aX - W,
         fTextHeight div 2, IsTrailing, IsInside, HTM));
 
@@ -1330,7 +1353,7 @@ begin
       Inc(P2);
       if Word(P2^) in [9, 65..90, 97..122] then Break;
     end;
-    Layout.Create(FTextFormat, P, P2-P, MaxInt, fTextHeight);
+    Layout.Create(FTextFormat, P, TSynNativeInt(P2 - P), MaxInt, fTextHeight);
     if P2 < PCol then
     begin
       P := P2;
@@ -1388,7 +1411,7 @@ begin
   while (P < PEnd) and not (Word((P + 1)^) in [9, 32..126]) do
     Inc(P);
 
-  Layout.Create(FTextFormat, PStart, P - PStart + 1, MaxInt, fTextHeight);
+  Layout.Create(FTextFormat, PStart, TSynNativeInt(P - PStart + 1), MaxInt, fTextHeight);
   CheckOSError(Layout.IDW.HitTestTextPosition(ToUInt32(PChar(S) + Index - PStart - 1),
     False, X, Y, HTM));
 
@@ -1522,7 +1545,9 @@ fLines := TSynEditStringList.Create(TextWidth);
     OnDeleted := ListDeleted;
     OnInserted := ListInserted;
     OnPut := ListPut;
+    OnBinaryFile := DoBinaryFileDetected;
   end;
+  fAutoDetectBinary := True;
   fUndoRedo := CreateUndoRedoManager;
   fUndoRedo.OnModifiedChanged := ModifiedChanged;
   fOrigUndoRedo := fUndoRedo;
@@ -1710,7 +1735,7 @@ begin
   Font.OnChange := SynFontChanged;
 
   // Create DirectWrite text format
-  FTextFormat.Create(Font, fTabWidth, 0, fExtraLineSpacing);
+  FTextFormat.Create(Font, TSynNativeUInt(fTabWidth), 0, TSynNativeUInt(fExtraLineSpacing));
   fTextHeight := ToSynNativeInt(FTextFormat.LineHeight);
   fCharWidth := ToSynNativeInt(FTextFormat.CharWidth);
 
@@ -2682,8 +2707,8 @@ var
       PrintGlyph := SynSpaceGlyph
     else
       Exit;
-    Layout.IDW.HitTestTextPosition(ToInt32(Pos-1), False, X1, Y1, HitMetrics);
-    Layout.IDW.HitTestTextPosition(ToInt32(Pos-1), True, X2, Y2, HitMetrics);
+    Layout.IDW.HitTestTextPosition(ToUInt32(Pos - 1), False, X1, Y1, HitMetrics);
+    Layout.IDW.HitTestTextPosition(ToUInt32(Pos - 1), True, X2, Y2, HitMetrics);
     WSLayout.Create(FTextFormat, @PrintGlyph, 1, ToInt32(Abs(Round(X2 - X1))), fTextHeight);
 
     Alignment := DWRITE_TEXT_ALIGNMENT_CENTER;
@@ -3142,24 +3167,24 @@ var
        // Skip if selection is not visible
        if PartSel.Last < 1 then Continue;
 
-        Layout.IDW.HitTestTextRange(ToInt32(PartSel.First - 1),
-          ToInt32(PartSel.Last - PartSel.First + 1),
+        Layout.IDW.HitTestTextRange(ToUInt32(PartSel.First - 1),
+          ToUInt32(PartSel.Last - PartSel.First + 1),
           ToInt32(FTextOffset),
           YRowOffset(ARow),
           PDwriteHitTestMetrics(nil)^, 0, RangeCount);
 
         SetLength(HMArr, RangeCount);
-        Layout.IDW.HitTestTextRange(ToInt32(PartSel.First - 1),
-        ToInt32(PartSel.Last - PartSel.First + 1),
+        Layout.IDW.HitTestTextRange(ToUInt32(PartSel.First - 1),
+        ToUInt32(PartSel.Last - PartSel.First + 1),
         ToInt32(FTextOffset + XRowOffset),
         YRowOffset(ARow), HMArr[0], RangeCount, RangeCount);
-        for I := 0 to RangeCount -1  do
+        for I := 0 to NativeInt(RangeCount) - 1  do
         begin
           if not AlphaBlended then
-            Layout.SetFontColor(PartSel.SelFG, HMArr[I].textPosition + 1, HMArr[I].length);
+            Layout.SetFontColor(PartSel.SelFG, NativeInt(HMArr[I].textPosition + 1), NativeInt(HMArr[I].length));
           RT.FillRectangle(Rect(Round(HMArr[I].left),
             YRowOffset(ARow),
-            ToSynNativeInt(SelEndX(HMArr[I].Left, HMArr[I].Width, PartSel.Last, ToSynNativeInt(I), RangeCount)),
+            ToSynNativeInt(SelEndX(HMArr[I].Left, HMArr[I].Width, PartSel.Last, ToSynNativeInt(I), TSynNativeInt(RangeCount))),
             YRowOffset(ARow + 1)), TSynDWrite.SolidBrush(BGColor));
         end;
       end;
@@ -3233,9 +3258,14 @@ begin
     else
       SRow := SLine;
 
+    // In binary mode replace non-printable code points so painting and column
+    // math go through the fast fixed-width ASCII path.
+    if fBinaryMode then
+      SubstituteBinaryChars(SRow);
+
     // Flow control symbols
     FlowControl := fcNone;
-    if FDisplayFlowControl.Enabled and Assigned(fHighlighter) and
+    if FDisplayFlowControl.Enabled and Assigned(fHighlighter) and not fBinaryMode and
       not WordWrap and not (scEOL in FVisibleSpecialChars)
     then
     begin
@@ -3287,7 +3317,7 @@ begin
         YRowOffset(Row + 1)), TSynDWrite.SolidBrush(FullRowBG));
 
     // Highlighted tokens
-    if fHighlighter <> nil then
+    if (fHighlighter <> nil) and not fBinaryMode then
     begin
       // Optimization.  In WordWrap mode we carry on where the previous row ended,
       // if they are parts of the same line.  So, each line is scanned once.
@@ -3365,7 +3395,7 @@ begin
         if (FlowControl <> fcNone) and (FullRowFG = clNone) and
           (CharOffset + LastChar = SLine.Length + 2)
         then
-          Layout.SetFontColor(FDisplayFlowControl.Color, LastChar - FirstChar + 1, 1);
+          Layout.SetFontColor(FDisplayFlowControl.GetColorForControl(FlowControl), LastChar - FirstChar + 1, 1);
       end;
     end;
 
@@ -4589,13 +4619,12 @@ begin
     begin
       FilesList := TStringList.Create;
       try
-        iNumberDropped := DragQueryFile(THandle(Msg.wParam), ToUInt32(-1),
-          nil, 0);
+        iNumberDropped := ToInt32( DragQueryFile(THandle(Msg.wParam), ToUInt32(-1), nil, 0));
         DragQueryPoint(THandle(Msg.wParam), Point);
 
         for i := 0 to iNumberDropped - 1 do
         begin
-          DragQueryFileW(THandle(Msg.wParam), i, FileNameW,
+          DragQueryFileW(THandle(Msg.wParam), ToUInt32(i), FileNameW,
             sizeof(FileNameW) div 2);
           FilesList.Add(FileNameW)
         end;
@@ -4661,7 +4690,7 @@ end;
 
 procedure TCustomSynEdit.WMGetText(var Msg: TWMGetText);
 begin
-  Msg.Result := StrLen(StrLCopy(PChar(Msg.Text), PChar(Text), ToUInt32(Msg.TextMax - 1)));
+  Msg.Result := LPARAM(StrLen(StrLCopy(PChar(Msg.Text), PChar(Text), ToUInt32(Msg.TextMax - 1))));
 end;
 
 procedure TCustomSynEdit.WMGetTextLength(var Msg: TWMGetTextLength);
@@ -4701,7 +4730,7 @@ begin
       // ImeCount is always the size in bytes, also for Unicode
       GetMem(PW, ImeCount + sizeof(WideChar));
       try
-        ImmGetCompositionStringW(imc, GCS_RESULTSTR, PW, ImeCount);
+        ImmGetCompositionStringW(imc, GCS_RESULTSTR, PW, DWORD(ImeCount));
         PW[ImeCount div sizeof(WideChar)] := #0;
         CommandProcessor(ecImeStr, #0, PW);
       finally
@@ -4719,19 +4748,14 @@ var
   imc: HIMC;
   LogFontW: TLogFontW;
 begin
-  with Msg do
+  if Msg.WParam = IMN_SETOPENSTATUS then
   begin
-    case WParam of
-      IMN_SETOPENSTATUS:
-        begin
-          imc := ImmGetContext(Handle);
-          if imc <> 0 then
-          begin
-            GetObjectW(Font.Handle, SizeOf(TLogFontW), @LogFontW);
-            ImmSetCompositionFontW(imc, @LogFontW);
-            ImmReleaseContext(Handle, imc);
-          end;
-        end;
+    imc := ImmGetContext(Handle);
+    if imc <> 0 then
+    begin
+      GetObjectW(Font.Handle, SizeOf(TLogFontW), @LogFontW);
+      ImmSetCompositionFontW(imc, @LogFontW);
+      ImmReleaseContext(Handle, imc);
     end;
   end;
   inherited;
@@ -4764,7 +4788,7 @@ var
   pTarget: PChar;
   H: HIMC;
 begin
-  case Message.WParam of
+  case ToInt32(Message.WParam) of
     IMR_RECONVERTSTRING:
       begin
         // Reconversion string
@@ -4795,29 +4819,29 @@ begin
           pReconvert := Pointer(Message.LParam);
           pReconvert.dwSize := Sizeof(TReconvertString);
           pReconvert.dwVersion := 0;
-          pReconvert.dwStrLen := Length(TargetText);
+          pReconvert.dwStrLen := DWORD(Length(TargetText));
           pReconvert.dwStrOffset := Sizeof(TReconvertString);
           pTarget := Pointer(Message.LParam + Sizeof(TReconvertString));
-          move(TargetText[1], pTarget^, TargetByteLength);
+          move(PChar(TargetText)^, pTarget^, TargetByteLength);
           if (Self.SelLength <> 0) then
           begin
             pReconvert.dwTargetStrLen := 0;
             pReconvert.dwTargetStrOffset := 0;
-            pReconvert.dwCompStrLen := Length(TargetText);
+            pReconvert.dwCompStrLen := DWORD(Length(TargetText));
             pReconvert.dwCompStrOffset := 0;
           end
           else
           begin
             pReconvert.dwTargetStrLen := 0;
-            pReconvert.dwTargetStrOffset := ToInt32((Self.CaretX - 1) * sizeof(Char));
+            pReconvert.dwTargetStrOffset := ToUInt32((Self.CaretX - 1) * sizeof(Char));
             H := Imm32GetContext(Handle);
             try
-              ImmSetCompositionString(H, SCS_QUERYRECONVERTSTRING, pReconvert, Sizeof(TReconvertString) + TargetByteLength, nil, 0);
+              ImmSetCompositionString(H, SCS_QUERYRECONVERTSTRING, pReconvert, DWORD(Sizeof(TReconvertString) + TargetByteLength), nil, 0);
               if (pReconvert.dwCompStrLen <> 0) then
               begin
-                Self.CaretX := pReconvert.dwCompStrOffset div sizeof(Char) + 1;
+                Self.CaretX := TSynNativeInt(pReconvert.dwCompStrOffset div sizeof(Char) + 1);
                 Self.SelStart := RowColToCharIndex(Self.CaretXY);
-                Self.SelLength := pReconvert.dwCompStrLen;
+                Self.SelLength := TSynNativeInt(pReconvert.dwCompStrLen);
               end;
             finally
               Imm32ReleaseContext(Handle, H);
@@ -4844,15 +4868,15 @@ begin
           pReconvert := Pointer(Message.LParam);
           pReconvert.dwSize := Sizeof(TReconvertString);
           pReconvert.dwVersion := 0;
-          pReconvert.dwStrLen := Length(TargetText);
+          pReconvert.dwStrLen := DWORD(Length(TargetText));
           pReconvert.dwStrOffset := Sizeof(TReconvertString);
           pReconvert.dwCompStrLen := 0;
           pReconvert.dwCompStrOffset := 0;
           pReconvert.dwTargetStrLen := 0;
-          pReconvert.dwTargetStrOffset := ToInt32((Self.CaretX - 1) * sizeof(Char));
+          pReconvert.dwTargetStrOffset := ToUInt32((Self.CaretX - 1) * sizeof(Char));
           pTarget := Pointer(Message.LParam + Sizeof(TReconvertString));
           if TargetText <> '' then
-            move(TargetText[1], pTarget^, Length(TargetText) * sizeof(Char));
+            move(PChar(TargetText)^, pTarget^, Length(TargetText) * sizeof(Char));
           Message.Result := Sizeof(TReconvertString) + Length(TargetText) * sizeof(Char);
         end;
       end;
@@ -5038,7 +5062,7 @@ begin
     fWordWrapPlugin.LinesInserted(Index, aCount);
 
   vLastScan := Index;
-  if Assigned(fHighlighter) and (Lines.CountNative > 0) then
+  if Assigned(fHighlighter) and not fBinaryMode and (Lines.CountNative > 0) then
   begin
     repeat
       vLastScan := ScanFrom(vLastScan);
@@ -5074,7 +5098,7 @@ begin
   if WordWrap and (fWordWrapPlugin.LinePut(Index, OldLine) <> 0) then
     vEndLine := MaxInt;
   vLastScan := Index;
-  if Assigned(fHighlighter) then
+  if Assigned(fHighlighter) and not fBinaryMode then
   begin
     vLastScan := ScanFrom(Index);
     vEndLine := Max(vEndLine, vLastScan + 1);
@@ -5104,7 +5128,7 @@ procedure TCustomSynEdit.ScanRanges;
 var
   i: TSynNativeInt;
 begin
-  if Assigned(fHighlighter) and (Lines.CountNative > 0) then begin
+  if Assigned(fHighlighter) and not fBinaryMode and (Lines.CountNative > 0) then begin
     fHighlighter.ResetRange;
     i := 0;
     repeat
@@ -5671,6 +5695,14 @@ begin
   TSynEditStringList(fOrigLines).OnCleared(Sender);
 end;
 
+procedure TCustomSynEdit.ChainBinaryFile(Sender: TObject);
+begin
+  // Preserve an existing listener (including an editor sharing this buffer).
+  if Assigned(fChainBinaryFile) then
+    fChainBinaryFile(Sender);
+  DoBinaryFileDetected(Sender);
+end;
+
 procedure TCustomSynEdit.ChainListBeforeDeleted(Sender: TObject; aIndex: TSynNativeInt;
   aCount: TSynNativeInt);
 begin
@@ -5759,6 +5791,7 @@ begin
   with TSynEditStringList(fLines) do
   begin
     OnCleared := fChainListCleared;
+    OnBinaryFile := fChainBinaryFile;
     OnBeforeDeleted := fChainListBeforeDeleted;
     OnDeleted := fChainListDeleted;
     OnInserted := fChainListInserted;
@@ -5769,6 +5802,7 @@ begin
   fUndoRedo.OnModifiedChanged := fChainModifiedChanged;
 
   fChainListCleared := nil;
+  fChainBinaryFile := nil;
   fChainListBeforeDeleted := nil;
   fChainListDeleted := nil;
   fChainListInserted := nil;
@@ -5779,6 +5813,7 @@ begin
 
   //make the switch
   fLines := fOrigLines;
+  fBinaryMode := fOrigBinaryMode;
   fUndoRedo := fOrigUndoRedo;
   LinesHookChanged;
 
@@ -5801,7 +5836,15 @@ begin
   else if fLines <> fOrigLines then
     UnHookTextBuffer;
 
+  // Keep display state with its buffer. Use cached detection only: scanning
+  // here would materialize a virtual/paged buffer and defeat virtualization.
+  fOrigBinaryMode := fBinaryMode;
+  if fAutoDetectBinary then
+    fBinaryMode := aBuffer.DetectBinary and aBuffer.IsBinaryFile;
+
   //store the current values and put in the chained methods
+  fChainBinaryFile := aBuffer.OnBinaryFile;
+    aBuffer.OnBinaryFile := ChainBinaryFile;
   fChainListCleared := aBuffer.OnCleared;
     aBuffer.OnCleared := ChainListCleared;
   fChainListBeforeDeleted := aBuffer.OnBeforeDeleted;
@@ -5959,6 +6002,75 @@ begin
       UseCodeFolding := OldUseCodeFolding;
     end;
   end;
+end;
+
+procedure TCustomSynEdit.SubstituteBinaryChars(var S: string);
+{ Replaces every code point outside the printable ASCII range with '.' for
+  display purposes only (the underlying buffer is untouched). This keeps the
+  painted rows pure ASCII so DirectWrite never needs glyph shaping or font
+  fallback while scrolling through binary data, and it makes the rendered
+  width match the fixed-width measurement used in binary mode exactly, so the
+  caret and horizontal scrollbar stay aligned. The substitution is 1:1, so
+  character positions are preserved. }
+var
+  I: Integer;
+  P: PChar;
+begin
+  if S = '' then Exit;
+  UniqueString(S);
+  P := PChar(S);
+  for I := 0 to S.Length - 1 do
+  begin
+    case Word(P[I]) of
+      32..126: ; // printable ASCII - keep as is
+    else
+      P[I] := '.';
+    end;
+  end;
+end;
+
+procedure TCustomSynEdit.SetBinaryMode(const Value: Boolean);
+begin
+  if Value = fBinaryMode then Exit;
+
+  // Binary mode does not touch the Highlighter property. Instead the editor
+  // simply ignores the highlighter while fBinaryMode is True (see ScanRanges,
+  // ListInserted, ListPut and PaintLines). This avoids triggering a rescan of
+  // stale content when toggling, and means the user's chosen highlighter is
+  // automatically active again once a normal text file is loaded.
+  fBinaryMode := Value;
+
+  // All cached line widths were measured with the other mode's metrics, and
+  // the highlighter ranges are no longer relevant (or now need recomputing).
+  TSynEditStringList(fLines).ResetMaxWidth;
+  if not fBinaryMode then
+    ScanRanges;
+
+  if not (csLoading in ComponentState) and HandleAllocated then
+  begin
+    InvalidateLines(-1, -1);
+    InvalidateGutter;
+    Include(fStateFlags, sfScrollbarChanged);
+  end;
+end;
+
+procedure TCustomSynEdit.SetAutoDetectBinary(const Value: Boolean);
+begin
+  fAutoDetectBinary := Value;
+  if Assigned(fLines) then
+    TSynEditStringList(fLines).DetectBinary := Value;
+end;
+
+procedure TCustomSynEdit.DoBinaryFileDetected(Sender: TObject);
+begin
+  if fAutoDetectBinary then
+    // Set the field directly rather than going through SetBinaryMode: this
+    // callback fires from LoadFromStream *before* the new content replaces the
+    // old. The Clear + insert that follows recomputes line widths and (when
+    // leaving binary mode) rescans the new text via ListInserted, so there is
+    // nothing to refresh or rescan here - and crucially we avoid scanning the
+    // stale binary content with a real highlighter.
+    fBinaryMode := TSynEditStringList(Sender).IsBinaryFile;
 end;
 
 procedure TCustomSynEdit.SetBorderStyle(Value: TSynBorderStyle);
@@ -6318,6 +6430,13 @@ var
   P2, PStart, PEnd: PChar;
   CopyS: string;
 begin
+  // In binary mode every code point is treated as one fixed-width cell. This
+  // avoids creating a DirectWrite text layout (and the associated glyph
+  // shaping / cross-script font fallback) for runs of arbitrary code points,
+  // which is what makes measuring the lines of a binary file extremely slow.
+  if fBinaryMode then
+    Exit(Len * fCharWidth);
+
   if P^ = #0 then Exit(0);
 
   if scControlChars in FVisibleSpecialChars then
@@ -6359,7 +6478,7 @@ begin
       Inc(P2);
       if Word(P2^) in [9, 65..90, 97..122] then Break;
     end;
-    Layout.Create(FTextFormat, P, P2-P, MaxInt, fTextHeight);
+    Layout.Create(FTextFormat, P, TSynNativeInt(P2 - P), MaxInt, fTextHeight);
     Inc(Result, Round(Layout.TextMetrics.widthIncludingTrailingWhitespace));
     P := P2;
   end;
@@ -6734,7 +6853,7 @@ begin
               else begin
                 // delete char accounting for surrogate pairs
                 CaretXNew := CaretX - 1;
-                if (CaretXNew > 1) and Temp[CaretXNew].IsLowSurrogate then
+                if (CaretXNew > 1) and Temp.Chars[ToInt32(CaretXNew - 1)].IsLowSurrogate then
                   Dec(CaretXNew);
                 Delete(Temp, CaretXNew, CaretX - CaretXNew);
                 CaretNew := BufferCoord(CaretXNew, CaretY);
@@ -7201,8 +7320,8 @@ begin
       if CX = 0 then
         CX := 1;
       // valid char
-      if IsIdentChar(Line[CX]) then begin
-        while (CX <= LineLen) and IsIdentChar(Line[CX]) do
+      if IsWordChar(Line[CX]) then begin
+        while (CX <= LineLen) and IsWordChar(Line[CX]) do
           Inc(CX);
         while (CX <= LineLen) and IsWhiteChar(Line[CX]) do
           Inc(CX);
@@ -7297,16 +7416,16 @@ begin
     else
     begin
       // CX > 1 and <= LineLenght + 1
-      if IsIdentChar(Line[CX-1]) then begin
-        while (CX > 1) and IsIdentChar(Line[CX-1]) do
+      if IsWordChar(Line[CX-1]) then begin
+        while (CX > 1) and IsWordChar(Line[CX-1]) do
           Dec(CX);
       end else if IsWhiteChar(Line[CX-1]) then begin
         while (CX > 1) and IsWhiteChar(Line[CX-1]) do
           Dec(CX);
         if (CX > 1) then
         begin
-          if IsIdentChar(Line[CX-1]) then
-            while (CX > 1) and IsIdentChar(Line[CX-1]) do
+          if IsWordChar(Line[CX-1]) then
+            while (CX > 1) and IsWordChar(Line[CX-1]) do
               Dec(CX)
           else
             // breakchar and not whitechar
@@ -7576,7 +7695,7 @@ begin
   if (Value <> fTabWidth) then begin
     fTabWidth := Value;
     TSynEditStringList(Lines).TabWidth := Value;
-    FTextFormat.Create(Font, fTabWidth, 0, fExtraLineSpacing);
+    FTextFormat.Create(Font, NativeUInt(fTabWidth), 0, NativeUInt(fExtraLineSpacing));
     Invalidate; // to redraw text containing tab chars
     if WordWrap then
     begin
@@ -8329,31 +8448,45 @@ end;
 
 procedure TCustomSynEdit.ExecCmdCaseChange(const Cmd: TSynEditorCommand);
 
-  function ToggleCase(const aStr: string): string;
+  function ToggleCase(const AStr: string): string;
   var
-    I: TSynNativeInt;
-    sLower: string;
+    lBuilder: TStringBuilder;
+    lCount: Integer;
+    lLower: string;
   begin
-    Result := aStr.ToUpper;
-    sLower := aStr.ToLower;
-    for I := 1 to Length(aStr) do
-    begin
-      if Result[I] = aStr[I] then
-        Result[I] := sLower[I];
+    lBuilder := TStringBuilder.Create(AStr.ToUpper);
+    try
+      lLower := AStr.ToLower;
+      for lCount := 0 to lBuilder.Length - 1 do
+      begin
+        if lBuilder[lCount] = AStr.Chars[lCount] then
+          lBuilder[lCount] := lLower.Chars[lCount];
+      end;
+      Result := lBuilder.ToString;
+    finally
+      lBuilder.Free;
     end;
   end;
 
-  function TitleCase(S:string): string;
+  function TitleCase(const AValue: string): string;
   var
-    I: TSynNativeInt;
+    lBuilder: TStringBuilder;
+    lCount: Integer;
   begin
-    S[1] := S[1].ToUpper;
-    For I := 1 to Length(S) - 1 Do
-      If IsWordBreakChar(S[I]) then
-        S[I+1] := S[I + 1].ToUpper
-      else
-        S[I + 1] := S[I + 1].ToLower;
-    Result := S;
+    lBuilder := TStringBuilder.Create(AValue);
+    try
+      lBuilder[0] := lBuilder[0].ToUpper;
+      for lCount := 0 to lBuilder.Length - 2 do
+      begin
+        If IsWordBreakChar(lBuilder[lCount]) then
+          lBuilder[lCount + 1] := lBuilder[lCount + 1].ToUpper
+        else
+          lBuilder[lCount + 1] := lBuilder[lCount + 1].ToLower;
+      end;
+      Result := lBuilder.ToString;
+    finally
+      lBuilder.Free;
+    end;
   end;
 
 var
@@ -8422,8 +8555,10 @@ begin
         MinLen := DisplayToBufferPos(DisplayCoord(
           BufferToDisplayPos(CaretXY).Column, LineToRow(Line + 1))).Char;
         PrevLine := Lines[Line];
-        if (Length(PrevLine) >= MinLen) then begin
-          P := @PrevLine[MinLen];
+        if (Length(PrevLine) >= MinLen) then
+        begin
+          P := PChar(PrevLine);
+          Inc(P, MinLen - 1);
           // scan over non-whitespaces
           repeat
             if (P^ = #9) or (P^ = #32) or (P^ = #$00A0) then Break;
@@ -8569,7 +8704,8 @@ begin
         PrevLine := ExpandTabs(Lines[iLine], fTabWidth);
         if (PrevLine.Length > 0) and (Length(PrevLine) >= MaxLen) then
         begin
-          p := @PrevLine[MaxLen];
+          p := PChar(PrevLine);
+          Inc(p, MaxLen - 1);
           // scan over whitespaces
           repeat
             if (p^ <> #32) and (p^ <> #$00A0) then Break;
@@ -9608,6 +9744,11 @@ begin
     Result := AChar.IsWhiteSpace and not IsIdentChar(AChar);
 end;
 
+function TCustomSynEdit.IsWordChar(AChar: WideChar): Boolean;
+begin
+  Result := (not IsWordBreakChar(AChar)) and (not IsWhiteChar(AChar));
+end;
+
 function TCustomSynEdit.IsWordBreakChar(AChar: WideChar): Boolean;
 begin
   if Assigned(Highlighter) then
@@ -9711,7 +9852,7 @@ var
 begin
   if Index < 1 then
     Exit(BufferCoord(1, 1));
-  case Lines.CountNative of
+  case ToInt32(Lines.CountNative) of
     0: Exit(BufferCoord(1, 1));
     1: Exit(BufferCoord(Index + 1, 1));
   end;

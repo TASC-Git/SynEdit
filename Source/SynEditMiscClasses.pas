@@ -12,7 +12,7 @@
   The Original Code is based on the mwSupportClasses.pas file from the
   mwEdit component suite by Martin Waldenburg and other developers, the Initial
   Author of this file is Michael Hieke.
-  Unicode translation by Maël Hörz.
+  Unicode translation by MaÃ«l HÃ¶rz.
   All Rights Reserved.
 
   Contributors to the SynEdit and mwEdit projects are listed in the
@@ -356,7 +356,7 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     procedure AutoSizeDigitCount;
-    function FormatLineNumber(Line: TSynNativeInt): string;
+    function FormatLineNumber(ALine: TSynNativeInt): string;
     function RealGutterWidth: TSynNativeInt;
     function BandAtX(X: TSynNativeInt): TSynGutterBand;
     // ++ DPI-Aware
@@ -852,11 +852,17 @@ type
   private
     FEnabled: Boolean;
     FColor: TColor;
+    FBreakColor: TColor;
+    FContinueColor: TColor;
+  public
+    function GetColorForControl(FC: TSynFlowControl): TColor;
   published
     constructor Create;
     procedure Assign(aSource: TPersistent); override;
     property Enabled: Boolean read FEnabled write FEnabled default True;
-    property Color: TColor read FColor write FColor default $0045FF; //clWebOrangeRed
+    property Color: TColor read FColor write FColor default $0045FF; //clWebOrangeRed (exit)
+    property BreakColor: TColor read FBreakColor write FBreakColor default $0045FF;
+    property ContinueColor: TColor read FContinueColor write FContinueColor default $0045FF;
   end;
 
    {$ENDREGION 'TSynDisplayFlowControl'}
@@ -1216,22 +1222,31 @@ begin
   Inc(FUpdateCount);
 end;
 
-function TSynGutter.FormatLineNumber(Line: TSynNativeInt): string;
+function TSynGutter.FormatLineNumber(ALine: TSynNativeInt): string;
 var
-  I: TSynNativeInt;
+  lBuilder: TStringBuilder;
+  lCount: Integer;
 begin
   if FZeroStart then
-    Dec(Line)
+    Dec(ALine)
   else if FLineNumberStart > 1 then
-    Inc(Line, FLineNumberStart - 1);
-  Result := Format('%*d', [FAutoSizeDigitCount, Line]);
+    Inc(ALine, FLineNumberStart - 1);
+  Result := Format('%*d', [FAutoSizeDigitCount, ALine]);
   if FLeadingZeros then
-    for I := 1 to FAutoSizeDigitCount - 1 do
-    begin
-      if (Result[I] <> ' ') then
-        Break;
-      Result[I] := '0';
+  begin
+    lBuilder := TStringBuilder.Create(Result);
+    try
+      for lCount := 0 to ToInt32(FAutoSizeDigitCount) - 2 do
+      begin
+        if lBuilder[lCount] <> ' ' then
+          Break;
+        lBuilder[lCount] := '0';
+      end;
+      Result := lBuilder.ToString;
+    finally
+      lBuilder.Free;
     end;
+  end;
 end;
 
 function TSynGutter.RealGutterWidth: TSynNativeInt;
@@ -1292,7 +1307,7 @@ begin
   finally
     TempFont.Free;
   end;
-  FCharWidth := FTextFormat.CharWidth;
+  FCharWidth := NativeInt(FTextFormat.CharWidth);
   Changed;
 end;
 
@@ -2455,7 +2470,7 @@ begin
       S := Gutter.FormatLineNumber(Line);
       if Assigned(SynEdit.OnGutterGetText) then
         SynEdit.OnGutterGetText(SynEdit, Line, S);
-      RT.DrawText(PChar(S), S.Length, TextFormat.IDW, LineRect,
+      RT.DrawText(PChar(S), UINT(S.Length), TextFormat.IDW, LineRect,
         TSynDWrite.SolidBrush(FontColor),
         D2D1_DRAW_TEXT_OPTIONS_CLIP +
         IfThen(TOSVersion.Check(6,3), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, 0),
@@ -4247,6 +4262,8 @@ begin
   begin
     FEnabled := TSynDisplayFlowControl(aSource).Enabled;
     FColor := TSynDisplayFlowControl(aSource).Color;
+    FBreakColor := TSynDisplayFlowControl(aSource).BreakColor;
+    FContinueColor := TSynDisplayFlowControl(aSource).ContinueColor;
   end
   else
     inherited;
@@ -4256,7 +4273,19 @@ constructor TSynDisplayFlowControl.Create;
 begin
   inherited;
   FEnabled := True;
-  FColor := $0045FF;  // clWebOrangeRed
+  FColor := $0045FF;  // clWebOrangeRed (exit default)
+  FBreakColor := $0045FF;
+  FContinueColor := $0045FF;
+end;
+
+function TSynDisplayFlowControl.GetColorForControl(FC: TSynFlowControl): TColor;
+begin
+  case FC of
+    fcBreak:    Result := FBreakColor;
+    fcContinue: Result := FContinueColor;
+  else
+    Result := FColor; // fcExit and fcNone
+  end;
 end;
 
 {$ENDREGION 'TSynDisplayFlowControl'}
