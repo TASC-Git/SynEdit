@@ -8,8 +8,8 @@
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <ProjectGuid>{AC917C2B-5870-48AD-981D-668AD3E4A533}</ProjectGuid>
         <ProjectName Condition="'$(ProjectName)'==''">SynEditDR</ProjectName>
-        <ProjectVersion>20.4</ProjectVersion>
-        <TargetedPlatforms>3</TargetedPlatforms>
+        <ProjectVersion>20.5</ProjectVersion>
+        <TargetedPlatforms>3145731</TargetedPlatforms>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
